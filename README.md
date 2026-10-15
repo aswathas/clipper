@@ -23,6 +23,8 @@ One Tauri binary. No cloud, no account, no telemetry.
   auto-detects the vault; if you have none it creates `~/Documents/ClipperVault`.
 - **Local dashboard** — `http://127.0.0.1:7137/` with Today / Inbox / Library panes and
   full-text search, backed by a SQLite + FTS5 index that mirrors the vault.
+- **Headless desktop process** — the tray daemon has no window and no webview. Tray →
+  *Show dashboard* opens the dashboard in your default browser.
 - **Phone PWA pair over LAN** — tray → *Show QR*, scan it, and the phone gets a no-build
   web app that posts links to the desktop.
 - **Local only** — no cloud, no account, no telemetry. A JSONL queue, one SQLite file,
@@ -31,8 +33,7 @@ One Tauri binary. No cloud, no account, no telemetry.
 
 > **Scope of this release.** `SPEC.md` designs four capture modes (URL, screenshot,
 > photo, free text); this release wires **two** — URL and screenshot. Photo and free-text
-> capture are designed but not implemented yet. The tray's *Settings* item is still a
-> placeholder.
+> capture are designed but not implemented yet.
 
 ---
 
@@ -85,8 +86,8 @@ an `.msi` and an NSIS `-setup.exe`.
 1. Launch `clipper.exe`. The tray icon appears; **no window opens** (by design).
 2. Clipper auto-detects your Obsidian vault, or creates `~/Documents/ClipperVault`.
    `~/.clipper/config.toml` is written on this first run and then left alone.
-3. Tray → *Show dashboard* opens the dashboard window. The same page is served at
-   <http://127.0.0.1:7137/> if you prefer a browser.
+3. Tray → *Show dashboard* opens <http://127.0.0.1:7137/> in your default browser.
+   There is no app window: the desktop process is headless and the browser is the UI.
 
 ---
 
@@ -101,10 +102,12 @@ an `.msi` and an NSIS `-setup.exe`.
 
 ### Tray menu
 
-- **Show dashboard** — opens the dashboard window (Today / Inbox / Library)
-- **Settings** — placeholder, planned
-- **Show QR** — opens the phone-pairing QR window
+- **Show dashboard** — opens the dashboard in your default browser
+- **Show QR** — opens the phone-pairing page in your browser
 - **Quit**
+
+Launching Clipper a second time also opens the dashboard — that is what the
+single-instance guard does now that there is no window to focus.
 
 ### Phone pair
 

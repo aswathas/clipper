@@ -20,13 +20,18 @@ use serde_json::{json, Value};
 
 use crate::{clock, config::Config, db, pairing, queue};
 
-const DASHBOARD_HTML: &[u8] = include_bytes!("../../src/ui/index.html");
-const DASHBOARD_JS: &[u8] = include_bytes!("../../src/ui/app.js");
-const DASHBOARD_CSS: &[u8] = include_bytes!("../../src/ui/styles.css");
+mod ui_assets {
+    include!(concat!(env!("OUT_DIR"), "/ui_assets.rs"));
+}
 
-const PWA_HTML: &[u8] = include_bytes!("../../src/ui/pwa/index.html");
-const PWA_JS: &[u8] = include_bytes!("../../src/ui/pwa/app.js");
-const PWA_MANIFEST: &[u8] = include_bytes!("../../src/ui/pwa/manifest.json");
+/// Look up a file embedded from `src/ui` at build time.
+fn ui_asset(route: &str) -> Option<(&'static str, &'static [u8])> {
+    let route = if route == "/" { "/index.html" } else { route };
+    ui_assets::UI_ASSETS
+        .iter()
+        .find(|(path, _, _)| *path == route)
+        .map(|(_, mime, bytes)| (*mime, *bytes))
+}
 
 /// Only these origins may call the API from a browser. Everything else is
 /// default-deny: no CORS headers are emitted, so the browser blocks it.
@@ -53,11 +58,6 @@ pub struct AppState {
 /// Build the router. Split out so the self-check can serve it on port 0.
 pub fn router(state: AppState) -> Router {
     Router::new()
-        // dashboard
-        .route("/", get(dashboard_html))
-        .route("/index.html", get(dashboard_html))
-        .route("/app.js", get(dashboard_js))
-        .route("/styles.css", get(dashboard_css))
         // api
         .route("/healthz", get(healthz))
         .route("/api/items", get(list_items))
@@ -71,10 +71,6 @@ pub fn router(state: AppState) -> Router {
         .route("/pair", get(pair_page))
         .route("/pair.png", get(pair_qr))
         .route("/qr", get(pair_qr_page))
-        .route("/pwa", get(pair_page))
-        .route("/pwa/index.html", get(pair_page))
-        .route("/pwa/app.js", get(pair_js))
-        .route("/pwa/manifest.json", get(pair_manifest))
         .route("/save", post(save_clip))
         // slice routers
         .merge(crate::routes_skills::router())
@@ -84,6 +80,8 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::routes_providers::router())
         .merge(crate::routes_pairing::router())
         .merge(crate::routes_chat::router())
+        // everything else is a file embedded from src/ui
+        .fallback(ui_static)
         .layer(middleware::from_fn(cors))
         .with_state(state)
 }
@@ -193,16 +191,23 @@ fn static_file(content_type: &'static str, bytes: &'static [u8]) -> Response {
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
 
-async fn dashboard_html() -> Response {
-    static_file("text/html; charset=utf-8", DASHBOARD_HTML)
+/// Serve an embedded `src/ui` file, or 404.
+///
+/// This is the router's fallback: the desktop app is headless, so the web app
+/// under `src/ui` is the only UI and it is served entirely from here.
+async fn ui_static(uri: axum::http::Uri) -> Response {
+    match ui_asset(uri.path()) {
+        Some((mime, bytes)) => static_file(mime, bytes),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
-async fn dashboard_js() -> Response {
-    static_file("text/javascript; charset=utf-8", DASHBOARD_JS)
-}
-
-async fn dashboard_css() -> Response {
-    static_file("text/css; charset=utf-8", DASHBOARD_CSS)
+/// `GET /pair` — a short alias for the phone PWA page.
+async fn pair_page() -> Response {
+    match ui_asset("/pwa/index.html") {
+        Some((mime, bytes)) => static_file(mime, bytes),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 // ------------------------------------------------------------------ handlers
@@ -348,18 +353,6 @@ async fn stats(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
 }
 
 // --------------------------------------------------------------- phone pairing
-
-async fn pair_page() -> Response {
-    static_file("text/html; charset=utf-8", PWA_HTML)
-}
-
-async fn pair_js() -> Response {
-    static_file("text/javascript; charset=utf-8", PWA_JS)
-}
-
-async fn pair_manifest() -> Response {
-    static_file("application/manifest+json", PWA_MANIFEST)
-}
 
 /// A QR code for the pairing URL, as PNG.
 async fn pair_qr(State(state): State<AppState>) -> Response {

@@ -1,14 +1,19 @@
 // Clipper — Tauri 2 backend.
 //
-// Boot order: resolve config + vault, build the tray, register the global
-// hotkey, then start the queue drainer in the background.
+// The desktop app is **headless**: no webview, no window. It is the capture and
+// ingest daemon — tray icon, global hotkeys, queue, drainer, and the axum server
+// that hosts the entire UI. The tray's "Show dashboard" opens that UI in the
+// user's browser.
+//
+// Boot order: resolve config + vault, bind the API port, build the tray, register
+// the global hotkeys, then start the drainer, indexer and self-improvement tasks.
 
 use std::sync::{Arc, Mutex};
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
+    AppHandle,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -47,6 +52,9 @@ const CAPTURE_HOTKEY: &str = "Ctrl+Shift+C";
 const SCREENSHOT_HOTKEY: &str = "Ctrl+Shift+X";
 /// Tray icon id, used to look the tray up for notifications.
 const TRAY_ID: &str = "clipper";
+/// The port the API actually bound. Tray handlers and the single-instance
+/// callback need it to build the dashboard URL; it is set once during setup.
+static LIVE_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(7137);
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -111,74 +119,21 @@ fn on_capture(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
 }
 
 /// Where the app serves its own dashboard.
+///
+/// The desktop app is headless: this URL *is* the product's UI, and it opens in
+/// the user's browser rather than in a Tauri window.
 fn dashboard_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
-/// Point the bundled window at the dashboard we serve.
+/// Open a URL in the user's default browser.
 ///
-/// `frontendDist` now bundles that same dashboard, but a webview sitting on
-/// `tauri://localhost` cannot reach `/api/...` — its relative fetches hit the
-/// asset server instead of axum, and the dashboard's offline fallback would
-/// quietly render mock fixtures that look real. Loading it from the axum origin
-/// keeps every fetch same-origin.
-fn point_window_at_dashboard<R: tauri::Runtime>(app: &tauri::App<R>, port: u16) {
-    if let Some(window) = app.get_webview_window("main") {
-        navigate_to_dashboard(&window, port);
-    }
-}
-
-fn navigate_to_dashboard<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>, port: u16) {
-    let target = dashboard_url(port);
-
-    if window
-        .url()
-        .map(|current| current.as_str() == target)
-        .unwrap_or(false)
-    {
-        return;
-    }
-
-    match target.parse::<tauri::Url>() {
-        Ok(url) => match window.navigate(url) {
-            Ok(()) => println!("Clipper: dashboard window -> {target}"),
-            Err(e) => eprintln!("Clipper: could not point the window at {target}: {e}"),
-        },
-        Err(e) => eprintln!("Clipper: bad dashboard URL {target}: {e}"),
-    }
-}
-
-/// Tray "Show dashboard": reveal the main window, repairing its URL if needed.
-fn show_dashboard<R: tauri::Runtime>(app: &AppHandle<R>, port: u16) {
-    let Some(window) = app.get_webview_window("main") else {
-        eprintln!("Clipper: no main window to show");
-        return;
-    };
-    navigate_to_dashboard(&window, port);
-    let _ = window.show();
-    let _ = window.set_focus();
-}
-
-/// Open (or focus) the small window that shows the pairing QR.
-fn show_qr_window(app: &AppHandle, port: u16) {
-    if let Some(window) = app.get_webview_window("qr") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
-    }
-
-    let Ok(url) = format!("http://127.0.0.1:{port}/qr").parse::<tauri::Url>() else {
-        eprintln!("qr: could not build the pairing URL");
-        return;
-    };
-
-    if let Err(e) =
-        tauri::WebviewWindowBuilder::new(app, "qr", tauri::WebviewUrl::External(url))
-            .title("Clipper — pair phone")
-            .inner_size(400.0, 500.0)
-            .build()
-    {
-        eprintln!("qr: could not open the pairing window: {e}");
+/// The webview is gone, so this replaces every "show a window" path: the opener
+/// plugin hands the URL to the operating system.
+fn open_in_browser(url: &str) {
+    match tauri_plugin_opener::open_url(url, None::<&str>) {
+        Ok(()) => println!("Clipper: opened {url}"),
+        Err(e) => eprintln!("Clipper: could not open {url}: {e}"),
     }
 }
 
@@ -201,11 +156,11 @@ fn on_capture_image(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
 pub fn run() {
     tauri::Builder::default()
         // Single instance must be registered before any other plugin.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+        .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
+            // Headless: a second launch just brings the dashboard up in the browser.
+            open_in_browser(&dashboard_url(
+                LIVE_PORT.load(std::sync::atomic::Ordering::SeqCst),
+            ));
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -239,21 +194,20 @@ pub fn run() {
             let lan_ip = pairing::lan_ip();
             println!("Clipper: phone pairing on http://{lan_ip}:{port}/pair (token is in the QR)");
 
-            // ---- system tray: Show dashboard / Settings / Show QR / Quit ----
+            // ---- system tray: Show dashboard / Show QR / Quit ----
             let show_i = MenuItem::with_id(app, "show", "Show dashboard", true, None::<&str>)?;
-            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let qr_i = MenuItem::with_id(app, "qr", "Show QR", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &settings_i, &qr_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &qr_i, &quit_i])?;
 
             let tray_port = port;
+            LIVE_PORT.store(tray_port, std::sync::atomic::Ordering::SeqCst);
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
                 .tooltip(format!("Clipper — {lan_ip}:{tray_port}"))
                 .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "show" => show_dashboard(app, tray_port),
-                    "settings" => println!("tray: Settings (placeholder)"),
-                    "qr" => show_qr_window(app, tray_port),
+                    "show" => open_in_browser(&dashboard_url(tray_port)),
+                    "qr" => open_in_browser(&format!("http://127.0.0.1:{tray_port}/qr")),
                     "quit" => {
                         println!("tray: Quit");
                         app.exit(0);
@@ -342,9 +296,6 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::serve(listener, api_state).await;
             });
-
-            // ---- point the bundled window at the dashboard we serve ----
-            point_window_at_dashboard(app, port);
 
             // ---- keep the pairing token fresh ----
             let rotation_token = Arc::clone(&token);
