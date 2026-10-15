@@ -23,6 +23,7 @@
   --accent-contrast: #FFFFFF;
   --danger: #B91C1C;
   --decay-fresh: #2E7D32;
+  --backdrop: rgba(21, 17, 14, 0.45);
 
   /* Type Colors (light) */
   --type-article: #2E5C8A;
@@ -1158,7 +1159,7 @@ button {
 .slideover-backdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(21, 17, 14, 0.45);
+  background-color: var(--backdrop);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 900;
@@ -1930,6 +1931,12 @@ button {
   align-items: center;
   gap: var(--sp-3);
   animation: toast-in 180ms ease-out;
+}
+
+.toast.toast-danger,
+.toast.toast-error {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 @keyframes toast-in {
