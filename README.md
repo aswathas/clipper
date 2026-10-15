@@ -7,6 +7,49 @@ One Tauri binary. No cloud, no account, no telemetry.
 
 ---
 
+## Dashboard v3: The Library
+
+The Clipper dashboard has been redesigned from the ground up according to [`DESIGN.md`](./DESIGN.md) under the **Impeccable** design specification (Operate mode). It embodies a calm, editorial, content-forward personal library aesthetic that feels like a quiet reading room:
+
+- **Typography & Theme**: Built with Spectral (display serif), Inter (body), and JetBrains Mono (code). Includes "Warm Paper" light mode and "Lamplit Room" dark mode with zero raw hex in components.
+- **8 Hand-Tuned Type Icons**: Distinct inline SVG glyphs for articles, videos, books, repositories, code errors, photos, events, and papers.
+- **Today Landing Page**:
+  - Time-aware personal greeting and localized date.
+  - *This Week* metric cards (saved, read, focus time).
+  - *For You Today* ranked cards with 6px top accent bar in the clip type's color and "Why" explanations.
+  - *Stale & Forgotten* triage drawer for neglected items.
+  - Pure SVG 90-day activity sparkline (`720×60`, 90 bars, zero chart libraries).
+  - *Topics You Lean On* horizontal bars & *Decay Distribution* meters.
+  - Contextual right rail with user focus and today's digest.
+- **Library Page**:
+  - Horizontal chip rail filtering by all 8 types and custom tag pills.
+  - Grid view (320px cards with decay indicators, reading time, and lift hover) and List view (56px dense rows with decay dots).
+- **Inbox Page**:
+  - 64px triage rows with circular checkboxes, hover actions (Archive, Tag, Obsidian), and keyboard navigation (`j`/`k`, `a`, `t`, `Enter`).
+  - Floating bulk action bar for multi-selection.
+- **Detail Slide-Over**:
+  - 520px smooth slide-over from the right with backdrop blur.
+  - Rendered markdown body with syntax highlighting, pull quotes, and code blocks.
+  - Quick action toolbar, related clip recommendations, and expandable inline chat.
+- **Ask Chat Page**:
+  - Left rail with conversation history grouped by date.
+  - Essay-style assistant responses with collapsible source citation cards.
+  - Streaming SSE output via `ReadableStream.getReader()` with subtle 1px accent cursor.
+  - Sticky composer with auto-grow textarea and streaming abort control.
+- **Skills Workbench**:
+  - Card list of extraction prompts and triggers with usage frequency stats.
+  - Split-view slide-over editor: YAML & markdown form on the left, live sanitized preview (DOMPurify) on the right.
+  - Interactive URL extraction test runner.
+- **Settings Page**:
+  - 6 dedicated tabs: Soul (persona/voice), Memory (user.md/memory.md), Self (learned patterns), Providers (CLI health & config.toml), Pairing (LAN QR code & TTL countdown), and Devices (paired mobile access with revocation).
+  - Sticky save button with dirty-state tracking.
+- **Universal States & Accessibility**:
+  - Full-page and row-level skeleton pulse animations (`1.5s ease-in-out`).
+  - `prefers-reduced-motion: reduce` overrides for instantaneous transitions.
+  - Accessible focus rings (`2px solid var(--accent)`), skip links, and ARIA live regions.
+
+---
+
 ## Features
 
 - **Clipboard URL capture** — press `Ctrl+Shift+C` in any app. A URL is deduped
@@ -21,19 +64,18 @@ One Tauri binary. No cloud, no account, no telemetry.
 - **Your Obsidian vault is the source of truth** — notes land as
   `<vault>/Inbox/YYYY-MM-DD_HHMM_<source>_<id>.md` with YAML frontmatter. Clipper
   auto-detects the vault; if you have none it creates `~/Documents/ClipperVault`.
-- **Local dashboard** — `http://127.0.0.1:7137/` with Today / Inbox / Library panes and
+- **Local dashboard** — `http://127.0.0.1:7137/` with Today / Inbox / Library / Ask / Skills / Settings panes and
   full-text search, backed by a SQLite + FTS5 index that mirrors the vault.
 - **Headless desktop process** — the tray daemon has no window and no webview. Tray →
   *Show dashboard* opens the dashboard in your default browser.
 - **Phone PWA pair over LAN** — tray → *Show QR*, scan it, and the phone gets a no-build
   web app that posts links to the desktop.
+- **Zero Build Step Frontend** — Pure Vanilla JS + Alpine.js + Pico.css with standalone mock API fallback.
 - **Local only** — no cloud, no account, no telemetry. A JSONL queue, one SQLite file,
   and markdown in your vault.
 - **MIT licensed.**
 
-> **Scope of this release.** `SPEC.md` designs four capture modes (URL, screenshot,
-> photo, free text); this release wires **two** — URL and screenshot. Photo and free-text
-> capture are designed but not implemented yet.
+> **Design Reference:** See [`DESIGN.md`](./DESIGN.md) for the complete design system specification.
 
 ---
 
