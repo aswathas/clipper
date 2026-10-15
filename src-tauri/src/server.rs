@@ -4,12 +4,12 @@
 //! `src/ui/` is embedded in the binary and served from `/`, so its relative
 //! `/api/...` fetches stay same-origin.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -18,11 +18,15 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::{clock, config::Config, db, queue};
+use crate::{clock, config::Config, db, pairing, queue};
 
 const DASHBOARD_HTML: &[u8] = include_bytes!("../../src/ui/index.html");
 const DASHBOARD_JS: &[u8] = include_bytes!("../../src/ui/app.js");
 const DASHBOARD_CSS: &[u8] = include_bytes!("../../src/ui/styles.css");
+
+const PWA_HTML: &[u8] = include_bytes!("../../src/ui/pwa/index.html");
+const PWA_JS: &[u8] = include_bytes!("../../src/ui/pwa/app.js");
+const PWA_MANIFEST: &[u8] = include_bytes!("../../src/ui/pwa/manifest.json");
 
 /// Only these origins may call the API from a browser. Everything else is
 /// default-deny: no CORS headers are emitted, so the browser blocks it.
@@ -40,6 +44,10 @@ pub struct AppState {
     pub cfg: Config,
     pub db: db::Db,
     pub queue_lock: Arc<Mutex<()>>,
+    /// Rotating session token that the phone must present to `/save`.
+    pub token: Arc<RwLock<String>>,
+    /// LAN address to advertise in the QR code.
+    pub lan_ip: String,
 }
 
 /// Build the router. Split out so the self-check can serve it on port 0.
@@ -59,6 +67,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/clips", post(create_clip))
         .route("/api/today", get(today))
         .route("/api/stats", get(stats))
+        // phone pairing
+        .route("/pair", get(pair_page))
+        .route("/pair.png", get(pair_qr))
+        .route("/qr", get(pair_qr_page))
+        .route("/pwa", get(pair_page))
+        .route("/pwa/index.html", get(pair_page))
+        .route("/pwa/app.js", get(pair_js))
+        .route("/pwa/manifest.json", get(pair_manifest))
+        .route("/save", post(save_clip))
         .layer(middleware::from_fn(cors))
         .with_state(state)
 }
@@ -276,7 +293,17 @@ async fn create_clip(
     State(state): State<AppState>,
     Json(body): Json<ClipBody>,
 ) -> Result<Json<Value>, ApiError> {
-    if !queue::looks_like_url(&body.url) {
+    enqueue_clip(&state, body.url, body.kind, "manual")
+}
+
+/// Shared by `POST /api/clips` and the phone's `POST /save`.
+fn enqueue_clip(
+    state: &AppState,
+    url: String,
+    kind: Option<String>,
+    source: &str,
+) -> Result<Json<Value>, ApiError> {
+    if !queue::looks_like_url(&url) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "url must start with http:// or https://",
@@ -286,10 +313,10 @@ async fn create_clip(
     let id = uuid::Uuid::new_v4().to_string();
     let entry = queue::QueueEntry {
         id: id.clone(),
-        url: Some(body.url.trim().to_string()),
+        url: Some(url.trim().to_string()),
         path: None,
-        source: "manual".to_string(),
-        kind: body.kind.unwrap_or_else(|| "manual".to_string()),
+        source: source.to_string(),
+        kind: kind.unwrap_or_else(|| "manual".to_string()),
         saved_at: clock::now_iso8601(),
     };
 
@@ -310,4 +337,123 @@ async fn today(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
 async fn stats(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let stats = with_db(&state, db::stats)?;
     Ok(Json(json!(stats)))
+}
+
+// --------------------------------------------------------------- phone pairing
+
+async fn pair_page() -> Response {
+    static_file("text/html; charset=utf-8", PWA_HTML)
+}
+
+async fn pair_js() -> Response {
+    static_file("text/javascript; charset=utf-8", PWA_JS)
+}
+
+async fn pair_manifest() -> Response {
+    static_file("application/manifest+json", PWA_MANIFEST)
+}
+
+/// A QR code for the pairing URL, as PNG.
+async fn pair_qr(State(state): State<AppState>) -> Response {
+    let url = pair_url_for(&state);
+    match pairing::qr_png(&url) {
+        Ok(png) => Response::builder()
+            .header(header::CONTENT_TYPE, "image/png")
+            .header(header::CACHE_CONTROL, "no-store")
+            .body(Body::from(png))
+            .unwrap_or_else(|_| Response::new(Body::empty())),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("could not render QR: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// A tiny page showing that QR, for the tray's "Show QR" window.
+async fn pair_qr_page(State(state): State<AppState>) -> Response {
+    let url = pair_url_for(&state);
+    let html = format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+         <title>Clipper — pair phone</title><style>\
+         html,body{{height:100%}}body{{margin:0;display:grid;place-items:center;\
+         background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif}}\
+         img{{background:#fff;border-radius:12px;padding:12px}}\
+         code{{word-break:break-all;font-size:12px;color:#94a3b8}}\
+         h1{{font-size:1rem;font-weight:600;text-align:center}}</style></head>\
+         <body><div><h1>Scan to pair your phone</h1>\
+         <img src=\"/pair.png\" width=\"304\" height=\"304\" alt=\"Pairing QR code\">\
+         <p><code>{url}</code></p></div></body></html>"
+    );
+    static_string("text/html; charset=utf-8", html)
+}
+
+#[derive(Debug, Deserialize)]
+struct SaveQuery {
+    token: Option<String>,
+}
+
+/// The phone's save endpoint. Requires the pairing token, in the query string
+/// or in `X-Clipper-Token`.
+async fn save_clip(
+    State(state): State<AppState>,
+    Query(query): Query<SaveQuery>,
+    headers: HeaderMap,
+    Json(body): Json<ClipBody>,
+) -> Result<Json<Value>, ApiError> {
+    let supplied = query.token.or_else(|| {
+        headers
+            .get("x-clipper-token")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    });
+
+    let expected = state
+        .token
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+
+    let authorised = supplied
+        .as_deref()
+        .map(|supplied| !expected.is_empty() && constant_time_eq(supplied, &expected))
+        .unwrap_or(false);
+
+    if !authorised {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid or missing pairing token",
+        ));
+    }
+
+    enqueue_clip(&state, body.url, body.kind, "phone")
+}
+
+fn pair_url_for(state: &AppState) -> String {
+    let token = state
+        .token
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    pairing::pair_url(&state.cfg, &state.lan_ip, &token)
+}
+
+/// Compare without an early exit, so a wrong token leaks no timing signal.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut difference = 0u8;
+    for (left, right) in a.iter().zip(b.iter()) {
+        difference |= left ^ right;
+    }
+    difference == 0
+}
+
+fn static_string(content_type: &'static str, body: String) -> Response {
+    Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::from(body))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
 }

@@ -18,6 +18,7 @@ pub mod config;
 pub mod db;
 pub mod drainer;
 pub mod frontmatter;
+pub mod pairing;
 pub mod prompts;
 pub mod queue;
 pub mod screenshot;
@@ -100,6 +101,29 @@ fn on_capture(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     }
 }
 
+/// Open (or focus) the small window that shows the pairing QR.
+fn show_qr_window(app: &AppHandle, port: u16) {
+    if let Some(window) = app.get_webview_window("qr") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+
+    let Ok(url) = format!("http://127.0.0.1:{port}/qr").parse::<tauri::Url>() else {
+        eprintln!("qr: could not build the pairing URL");
+        return;
+    };
+
+    if let Err(e) =
+        tauri::WebviewWindowBuilder::new(app, "qr", tauri::WebviewUrl::External(url))
+            .title("Clipper — pair phone")
+            .inner_size(400.0, 500.0)
+            .build()
+    {
+        eprintln!("qr: could not open the pairing window: {e}");
+    }
+}
+
 /// The screenshot hotkey handler: clipboard image -> staging PNG -> queue.
 fn on_capture_image(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     let Some((width, height, bytes)) = screenshot::clipboard_image() else {
@@ -134,18 +158,29 @@ pub fn run() {
             println!("Clipper: vault {}", cfg.vault_path().display());
             let lock = Arc::new(Mutex::new(()));
 
-            // ---- system tray: Show dashboard / Settings / Quit ----
+            // ---- phone pairing: LAN address + a rotating session token ----
+            let token = Arc::new(std::sync::RwLock::new(pairing::new_token()));
+            let lan_ip = pairing::lan_ip();
+            println!(
+                "Clipper: phone pairing on http://{lan_ip}:{}/pair (token is in the QR)",
+                cfg.server.port
+            );
+
+            // ---- system tray: Show dashboard / Settings / Show QR / Quit ----
             let show_i = MenuItem::with_id(app, "show", "Show dashboard", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let qr_i = MenuItem::with_id(app, "qr", "Show QR", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &settings_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &settings_i, &qr_i, &quit_i])?;
 
+            let tray_port = cfg.server.port;
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
-                .tooltip("Clipper")
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .tooltip(format!("Clipper — {lan_ip}:{tray_port}"))
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => println!("tray: Show dashboard (placeholder)"),
                     "settings" => println!("tray: Settings (placeholder)"),
+                    "qr" => show_qr_window(app, tray_port),
                     "quit" => {
                         println!("tray: Quit");
                         app.exit(0);
@@ -219,9 +254,17 @@ pub fn run() {
                 cfg: cfg.clone(),
                 db: Arc::clone(&index_db),
                 queue_lock: Arc::clone(&lock),
+                token: Arc::clone(&token),
+                lan_ip: lan_ip.clone(),
             };
             tauri::async_runtime::spawn(async move {
                 server::serve(listener, api_state).await;
+            });
+
+            // ---- keep the pairing token fresh ----
+            let rotation_token = Arc::clone(&token);
+            tauri::async_runtime::spawn(async move {
+                pairing::rotate_forever(rotation_token).await;
             });
 
             println!(

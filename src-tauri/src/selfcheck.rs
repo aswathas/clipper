@@ -372,6 +372,8 @@ fn hag4_rest_api() -> Result<(), String> {
         cfg: cfg.clone(),
         db: Arc::clone(&index_db),
         queue_lock: Arc::new(Mutex::new(())),
+        token: Arc::new(std::sync::RwLock::new("hag4-unused".to_string())),
+        lan_ip: "127.0.0.1".into(),
     };
 
     let ready = indexer.ready_flag();
@@ -596,6 +598,16 @@ fn hag4_rest_api() -> Result<(), String> {
 
 /// One blocking HTTP request over a real socket.
 fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<(u16, String), String> {
+    http_with_headers(port, method, path, body, &[])
+}
+
+fn http_with_headers(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    extra: &[(&str, &str)],
+) -> Result<(u16, String), String> {
     use std::io::{Read, Write};
 
     let mut stream =
@@ -606,6 +618,9 @@ fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<(u16,
 
     let mut request =
         format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
+    for (name, value) in extra {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
     if let Some(body) = body {
         request.push_str("Content-Type: application/json\r\n");
         request.push_str(&format!("Content-Length: {}\r\n", body.len()));
@@ -637,6 +652,43 @@ fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<(u16,
     };
 
     Ok((status, body))
+}
+
+/// Like [`http`], but keeps the body as bytes (for the PNG) and returns the
+/// raw header block so the content type can be checked.
+fn http_bytes(port: u16, path: &str) -> Result<(u16, String, Vec<u8>), String> {
+    use std::io::{Read, Write};
+
+    let mut stream =
+        std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .ok();
+
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).map_err(|e| e.to_string())?;
+
+    let split = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| index + 4)
+        .unwrap_or(0);
+    let (head, body) = raw.split_at(split);
+    let head = String::from_utf8_lossy(head).into_owned();
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+
+    Ok((status, head, body.to_vec()))
 }
 
 /// Minimal HTTP/1.1 chunked decoding, in case a body arrives without Content-Length.
@@ -787,6 +839,163 @@ fn hag6_image_capture() -> Result<(), String> {
     }
     if parsed_source != "screenshot" {
         return Err(format!("filename source = {parsed_source}"));
+    }
+
+    Ok(())
+}
+
+// ========================================================== HAG-7 self-check
+
+const HAG7_TOKEN: &str = "test-token-0123456789abcdefghijkl";
+
+/// HAG-7: phone pairing — the PWA, the QR, and the token-gated `/save`.
+pub fn run_hag7() -> i32 {
+    println!("hag7 self-check");
+    let mut failed = 0;
+    match hag7_pair_and_save() {
+        Ok(()) => println!("  PASS hag7_pair_and_save"),
+        Err(message) => {
+            failed += 1;
+            println!("  FAIL hag7_pair_and_save: {message}");
+        }
+    }
+
+    if failed == 0 {
+        println!("hag7 self-check: OK (1 check)");
+        0
+    } else {
+        println!("hag7 self-check: {failed} FAILED");
+        1
+    }
+}
+
+fn hag7_pair_and_save() -> Result<(), String> {
+    use crate::{db, server};
+    use std::sync::RwLock;
+
+    let root = std::env::temp_dir().join(format!("clipper-hag7-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let mut cfg = Config::default();
+    let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+    cfg.vault.path = temp(root.join("Vault"));
+    cfg.queue.dir = temp(root.join("queue"));
+    cfg.queue.staging_dir = temp(root.join("staging"));
+    cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+    cfg.server.bind = "127.0.0.1".into();
+    cfg.server.port = 0;
+    cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+    let index_db: db::Db = Arc::new(Mutex::new(
+        db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+    ));
+    let state = server::AppState {
+        cfg: cfg.clone(),
+        db: index_db,
+        queue_lock: Arc::new(Mutex::new(())),
+        token: Arc::new(RwLock::new(HAG7_TOKEN.to_string())),
+        lan_ip: "127.0.0.1".into(),
+    };
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        runtime.block_on(server::serve(listener, state));
+    });
+    wait_for_server(port)?;
+
+    // ---- GET /pair: the phone's input page ----
+    let (status, body) = http(port, "GET", "/pair", None)?;
+    if status != 200 {
+        return Err(format!("GET /pair -> {status}"));
+    }
+    if !body.contains("<input") {
+        return Err("the pairing page has no input element".into());
+    }
+    if !body.contains("/pwa/app.js") {
+        return Err("the pairing page does not load app.js".into());
+    }
+
+    // ---- the PWA assets ----
+    let (status, body) = http(port, "GET", "/pwa/app.js", None)?;
+    if status != 200 || !body.contains("/save") {
+        return Err(format!("GET /pwa/app.js -> {status} ({} bytes)", body.len()));
+    }
+    let (status, body) = http(port, "GET", "/pwa/manifest.json", None)?;
+    if status != 200 || !body.contains("\"name\": \"Clipper\"") {
+        return Err(format!("GET /pwa/manifest.json -> {status}"));
+    }
+
+    // ---- GET /pair.png: a real PNG ----
+    let (status, head, bytes) = http_bytes(port, "/pair.png")?;
+    if status != 200 {
+        return Err(format!("GET /pair.png -> {status}"));
+    }
+    if !head.to_ascii_lowercase().contains("image/png") {
+        return Err("pair.png did not come back as image/png".into());
+    }
+    if bytes.len() < 100 {
+        return Err(format!("pair.png was only {} bytes", bytes.len()));
+    }
+    if bytes.len() < 8 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("pair.png is not a PNG".into());
+    }
+
+    // ---- POST /save without / with a wrong token ----
+    let clip = r#"{"url":"https://phone.example/1"}"#;
+    let (status, _) = http(port, "POST", "/save", Some(clip))?;
+    if status != 401 {
+        return Err(format!("/save with no token -> {status}, expected 401"));
+    }
+    let (status, _) = http(port, "POST", "/save?token=nope", Some(clip))?;
+    if status != 401 {
+        return Err(format!("/save with a wrong token -> {status}, expected 401"));
+    }
+    if !queue::read_lines(&cfg.inbox_jsonl())
+        .map_err(|e| e.to_string())?
+        .is_empty()
+    {
+        return Err("an unauthorised /save still reached the queue".into());
+    }
+
+    // ---- POST /save with the token in the query string ----
+    let (status, body) = http(port, "POST", &format!("/save?token={HAG7_TOKEN}"), Some(clip))?;
+    if status != 200 {
+        return Err(format!("/save?token=… -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if payload["status"] != "queued" {
+        return Err(format!("status = {}", payload["status"]));
+    }
+    if payload["id"].as_str().map(str::is_empty).unwrap_or(true) {
+        return Err("no id came back from /save".into());
+    }
+
+    // ---- POST /save with the token in the header ----
+    let (status, body) = http_with_headers(
+        port,
+        "POST",
+        "/save",
+        Some(r#"{"url":"https://phone.example/2"}"#),
+        &[("X-Clipper-Token", HAG7_TOKEN)],
+    )?;
+    if status != 200 {
+        return Err(format!("/save with the header -> {status} {body}"));
+    }
+
+    let queued = queue::read_lines(&cfg.inbox_jsonl()).map_err(|e| e.to_string())?;
+    if queued.len() != 2 {
+        return Err(format!("{} queue lines, expected 2", queued.len()));
+    }
+    let entry: Value = serde_json::from_str(&queued[0]).map_err(|e| e.to_string())?;
+    if entry["source"] != "phone" {
+        return Err(format!("queue source = {}", entry["source"]));
     }
 
     Ok(())

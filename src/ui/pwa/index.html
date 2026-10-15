@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clipper — save a link</title>
+
+  <link rel="manifest" href="/pwa/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+
+  <!-- Pico from CDN; the page stays usable if it never arrives. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+  <style>
+    main { padding-block: 2.5rem; }
+    #status { min-height: 2.5rem; }
+    .ok { color: #107c10; }
+    .err { color: #a4262c; }
+  </style>
+
+  <!-- The pairing token travels in the QR link's query string. -->
+  <script>
+    window.CLIPPER_TOKEN =
+      new URLSearchParams(location.search).get("token") || "";
+  </script>
+
+  <!-- app.js before Alpine so its alpine:init listener is registered first. -->
+  <script defer src="/pwa/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+
+<body>
+  <main class="container" x-data="clipperPair">
+    <hgroup>
+      <h1>Clipper</h1>
+      <p>Send a link to your vault.</p>
+    </hgroup>
+
+    <form id="save-form" @submit.prevent="save">
+      <label for="url">Link</label>
+      <input
+        id="url"
+        name="url"
+        type="url"
+        inputmode="url"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        placeholder="https://example.com/article"
+        x-model="url"
+        required>
+      <button id="save-button" type="submit" :aria-busy="busy" :disabled="busy">Save</button>
+    </form>
+
+    <p id="status" class="status" role="status" aria-live="polite" x-text="status"></p>
+  </main>
+</body>
+</html>

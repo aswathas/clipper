@@ -36,8 +36,13 @@ See [`SPEC.md`](./SPEC.md) for the full design.
   note's filename, so re-indexing is idempotent and a dashboard-set status survives it.
 - **REST API** on `127.0.0.1:7137` (see below), which also serves the dashboard from `/`
   so its relative `/api/...` fetches stay same-origin.
-- **System tray** with three menu items: *Show dashboard* (placeholder), *Settings*
-  (placeholder), *Quit*.
+- **Phone pairing** — *Show QR* in the tray opens a window with a QR code (`GET /pair.png`)
+  encoding `http://<lan-ip>:<port>/pair?token=<session-token>`. The phone gets a no-build
+  PWA (Pico + Alpine from CDN, with a plain-DOM fallback when the CDN is unreachable) and
+  posts links to `/save`, which requires that token. The token is 32 random characters and
+  rotates every 24 h.
+- **System tray** with four menu items: *Show dashboard* (placeholder), *Settings*
+  (placeholder), *Show QR*, *Quit*.
 - **Single instance** — launching again focuses the existing window instead of starting
   a second copy.
 - The main window is **hidden by default**; the app is driven from the tray.
@@ -144,6 +149,11 @@ Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard
 | `POST /api/clips` `{url, type?}` | `{id, status:"queued"}`; appends to `inbox.jsonl` |
 | `GET /api/today` | `{items}`, newest 3 with status `inbox` |
 | `GET /api/stats` | `{total, by_type, by_status, stale_30d}` |
+| `GET /pair` | the phone PWA page |
+| `GET /pair.png` | QR code for the pairing URL, as `image/png` |
+| `GET /qr` | the small page shown by the tray's *Show QR* item |
+| `GET /pwa/app.js`, `GET /pwa/manifest.json` | PWA assets |
+| `POST /save` `{url}` | same as `/api/clips`; **requires** the pairing token in `?token=` or `X-Clipper-Token`, else `401` |
 
 CORS: only `http://127.0.0.1:7137`, `http://localhost:7137` and the app's own webview
 origins get CORS headers; everything else is default-deny.
@@ -157,6 +167,7 @@ non-zero — it never silently picks another port.
 .\src-tauri\target\debug\clipper.exe --hag3-smoke
 .\src-tauri\target\debug\clipper.exe --hag4-smoke
 .\src-tauri\target\debug\clipper.exe --hag6-smoke
+.\src-tauri\target\debug\clipper.exe --hag7-smoke
 ```
 
 `--hag3-smoke` runs four assertions against an isolated temp config with a faked provider
@@ -174,6 +185,11 @@ staged file is genuinely a PNG, drains it with a faked image provider, and asser
 filed note carries `type: image` / `source: screenshot` and that its id round-trips
 through the filename.
 
+`--hag7-smoke` serves the app on a random port and checks the pairing surface: `/pair`
+returns the input page, `/pair.png` is a real `image/png`, `/save` is `401` with no token
+or a wrong token (and nothing reaches the queue), and `200` with a valid token supplied
+either in the query string or in `X-Clipper-Token`.
+
 > The self-check is a flag on the real binary rather than a `tests/` target because a Rust
 > test-harness binary linking the Tauri stack cannot be loaded on this windows-gnu
 > toolchain (`STATUS_ENTRYPOINT_NOT_FOUND`), while `clipper.exe` itself loads fine. This
@@ -184,6 +200,7 @@ through the filename.
 ```
 src/                    vanilla HTML + CSS + JS frontend (no build step)
 src/ui/                 the dashboard (embedded in the binary and served at /)
+src/ui/pwa/             the phone PWA (served at /pair and /pwa/*)
 src-tauri/src/
   main.rs               entry point; `--hag<N>-smoke` runs a self-check
   lib.rs                Tauri wiring: boot, tray, hotkey, drainer, indexer, server
@@ -193,6 +210,7 @@ src-tauri/src/
   capture.rs            clipboard text -> deduped queue append
   drainer.rs            batching, prompt build, provider spawn, vault write
   screenshot.rs         clipboard image -> staging PNG -> queue entry
+  pairing.rs            session token, LAN address, QR rendering
   frontmatter.rs        note frontmatter parse + filename id recovery
   db.rs                 SQLite schema, FTS5, upsert and queries
   vaultwatch.rs         watches the vault, keeps the index in step

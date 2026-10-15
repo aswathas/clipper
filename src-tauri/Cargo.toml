@@ -39,6 +39,8 @@ time = { version = "0.3.55", features = ["formatting", "parsing"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 axum = "0.8.9"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+qrcode = { version = "0.14.1", features = ["image"] }
+rand = "0.9"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
