@@ -1,270 +1,383 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clipper — Smart Clipboard</title>
+  <title>Clipper — Second Brain Dashboard</title>
   <!-- Pico.css from CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <!-- Custom styles & overrides -->
+  <!-- Custom styles & design system -->
   <link rel="stylesheet" href="styles.css">
-  <!-- Alpine.js component -->
+  <!-- Alpine component & shell logic -->
   <script src="app.js"></script>
   <!-- Alpine.js from CDN (deferred) -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body>
-  <div x-data="clipper()" x-cloak>
-    <!-- Top Bar -->
-    <header class="top-bar">
-      <div class="brand-section">
-        <span>📎 Clipper</span>
+  <div x-data="clipperShell()" x-cloak>
+    <!-- Sticky Top Navigation Bar -->
+    <header class="top-nav">
+      <!-- Left: Brand + Page Navigation Links -->
+      <div class="nav-left">
+        <a class="brand" @click.prevent="navigate('today')" href="#/today">
+          <span class="brand-icon">📎</span>
+          <span>Clipper</span>
+        </a>
+
+        <nav>
+          <ul class="nav-links">
+            <li>
+              <a 
+                href="#/today" 
+                class="nav-link" 
+                :class="{ 'active': currentPage === 'today' }"
+                @click="navigate('today')"
+              >Today</a>
+            </li>
+            <li>
+              <a 
+                href="#/inbox" 
+                class="nav-link" 
+                :class="{ 'active': currentPage === 'inbox' }"
+                @click="navigate('inbox')"
+              >Inbox</a>
+            </li>
+            <li>
+              <a 
+                href="#/library" 
+                class="nav-link" 
+                :class="{ 'active': currentPage === 'library' }"
+                @click="navigate('library')"
+              >Library</a>
+            </li>
+            <li>
+              <a 
+                href="#/ask" 
+                class="nav-link" 
+                :class="{ 'active': currentPage === 'ask' }"
+                @click="navigate('ask')"
+              >Ask</a>
+            </li>
+            <li>
+              <a 
+                href="#/skills" 
+                class="nav-link" 
+                :class="{ 'active': currentPage === 'skills' }"
+                @click="navigate('skills')"
+              >Skills</a>
+            </li>
+          </ul>
+        </nav>
       </div>
 
-      <div class="search-section">
-        <input 
-          type="search" 
-          placeholder="Search clips (FTS5)..." 
-          x-model="query"
-          aria-label="Search clips"
+      <!-- Center: Search Input with '/' hotkey badge -->
+      <div class="nav-center">
+        <div class="search-input-wrap">
+          <input 
+            type="search" 
+            id="clipperSearchInput"
+            placeholder="Search clips (FTS5)..." 
+            x-model="searchQuery"
+            aria-label="Search clips"
+          >
+          <kbd class="search-kbd">/</kbd>
+        </div>
+      </div>
+
+      <!-- Right: Theme Toggle, Settings Icon, + Clip Button -->
+      <div class="nav-right">
+        <!-- Theme Toggle -->
+        <button 
+          type="button"
+          class="btn-icon" 
+          @click="toggleTheme()" 
+          title="Toggle Light/Dark Theme"
+          aria-label="Toggle theme"
         >
-      </div>
+          🌓
+        </button>
 
-      <div class="actions-section">
-        <button class="secondary outline" @click="openSettings()" title="Settings & Stats">⚙</button>
-        <button class="primary" @click="openAddModal()">+ clip</button>
+        <!-- Shortcuts Overlay Trigger -->
+        <button 
+          type="button"
+          class="btn-icon" 
+          @click="showShortcutsModal = true" 
+          title="Keyboard Shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+        >
+          ⌨
+        </button>
+
+        <!-- Settings Icon (Routes to #/settings) -->
+        <a 
+          href="#/settings" 
+          class="btn-icon" 
+          :class="{ 'active': currentPage === 'settings' }"
+          @click="navigate('settings')" 
+          title="Settings"
+          aria-label="Settings"
+        >
+          ⚙
+        </a>
+
+        <!-- + Clip Quick Capture Button -->
+        <button 
+          type="button"
+          class="btn-clip" 
+          @click="openQuickCapture()"
+        >
+          + clip
+        </button>
       </div>
     </header>
 
-    <!-- Main Three-Pane Dashboard Grid -->
-    <main class="dashboard-grid">
-      <!-- PANE 1: TODAY -->
-      <section class="pane pane-today">
-        <div class="pane-header">
-          <h3>Today</h3>
-          <span class="badge" x-text="today.length"></span>
+    <!-- Main Dynamic Content Area (6 Pages) -->
+    <main class="main-container">
+      <!-- 1. TODAY PAGE -->
+      <div x-show="currentPage === 'today'" x-data="pageToday()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
         </div>
 
-        <div class="clip-list">
-          <template x-if="today.length === 0">
-            <div class="empty-state">No clips for today yet.</div>
-          </template>
-
-          <template x-for="item in today" :key="item.id">
-            <article class="clip-card" :class="{ 'active': selectedId === item.id }">
-              <div @click="selectItem(item.id)">
-                <div class="clip-title-row">
-                  <h4 class="clip-title" x-text="item.title || item.url"></h4>
-                  <span class="clip-type-tag" x-text="item.type || 'url'"></span>
-                </div>
-                <div class="clip-meta">
-                  <span x-text="item.source || 'clip'"></span>
-                  <span x-text="formatDate(item.saved_at)"></span>
-                </div>
-                <div class="clip-tags" x-if="item.tags && item.tags.length">
-                  <template x-for="tag in item.tags" :key="tag">
-                    <span class="tag-badge" x-text="'#' + tag"></span>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Inline Expanded Detail Drawer -->
-              <div class="clip-detail-drawer" x-show="selectedId === item.id">
-                <p class="summary" x-text="selectedDetail?.summary || item.summary || 'No summary available.'"></p>
-                <div class="links">
-                  <div><strong>Vault:</strong> <code x-text="selectedDetail?.vault_path || item.vault_path || 'Inbox/'"></code></div>
-                  <template x-if="item.url && item.url.startsWith('http')">
-                    <div><strong>URL:</strong> <a :href="item.url" target="_blank" rel="noopener noreferrer" x-text="item.url"></a></div>
-                  </template>
-                </div>
-                <div class="action-buttons">
-                  <button class="secondary outline" @click.stop="updateStatus(item.id, 'archived')">Archive</button>
-                  <button class="secondary outline" @click.stop="addTag(item.id)">Add tag</button>
-                  <button class="outline" style="color: var(--clipper-decay-red); border-color: var(--clipper-decay-red);" @click.stop="updateStatus(item.id, 'deleted')">Delete</button>
-                </div>
-              </div>
-            </article>
-          </template>
-        </div>
-      </section>
-
-      <!-- PANE 2: INBOX -->
-      <section class="pane pane-inbox">
-        <div class="pane-header">
-          <h3>Inbox</h3>
-          <span class="badge" x-text="items.filter(i => i.status !== 'archived').length"></span>
+        <div class="empty-placeholder">
+          <div class="icon">🌅</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
         </div>
 
-        <div class="clip-list">
-          <template x-if="items.filter(i => i.status !== 'archived').length === 0">
-            <div class="empty-state">Inbox is empty. All caught up!</div>
-          </template>
-
-          <template x-for="item in items.filter(i => i.status !== 'archived')" :key="item.id">
-            <article class="clip-card" :class="{ 'active': selectedId === item.id }">
-              <div @click="selectItem(item.id)">
-                <div class="clip-title-row">
-                  <h4 class="clip-title" x-text="item.title || item.url"></h4>
-                  <span class="clip-type-tag" x-text="item.type || 'url'"></span>
-                </div>
-                <div class="clip-meta">
-                  <span x-text="item.source || 'clip'"></span>
-                  <span x-text="formatDate(item.saved_at)"></span>
-                </div>
-                <div class="clip-tags" x-if="item.tags && item.tags.length">
-                  <template x-for="tag in item.tags" :key="tag">
-                    <span class="tag-badge" x-text="'#' + tag"></span>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Inline Expanded Detail Drawer -->
-              <div class="clip-detail-drawer" x-show="selectedId === item.id">
-                <p class="summary" x-text="selectedDetail?.summary || item.summary || 'No summary available.'"></p>
-                <div class="links">
-                  <div><strong>Vault:</strong> <code x-text="selectedDetail?.vault_path || item.vault_path || 'Inbox/'"></code></div>
-                  <template x-if="item.url && item.url.startsWith('http')">
-                    <div><strong>URL:</strong> <a :href="item.url" target="_blank" rel="noopener noreferrer" x-text="item.url"></a></div>
-                  </template>
-                </div>
-                <div class="action-buttons">
-                  <button class="secondary outline" @click.stop="updateStatus(item.id, 'archived')">Archive</button>
-                  <button class="secondary outline" @click.stop="addTag(item.id)">Add tag</button>
-                  <button class="outline" style="color: var(--clipper-decay-red); border-color: var(--clipper-decay-red);" @click.stop="updateStatus(item.id, 'deleted')">Delete</button>
-                </div>
-              </div>
-            </article>
-          </template>
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line long"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line short"></div>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <!-- PANE 3: LIBRARY -->
-      <section class="pane pane-library">
-        <div class="pane-header">
-          <h3>Library</h3>
-          <span class="badge" x-text="items.length"></span>
+      <!-- 2. INBOX PAGE -->
+      <div x-show="currentPage === 'inbox'" x-data="pageInbox()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
         </div>
 
-        <div class="library-groups">
-          <template x-if="groupLibrary().length === 0">
-            <div class="empty-state">No clips indexed in library.</div>
-          </template>
-
-          <template x-for="group in groupLibrary()" :key="group.type">
-            <div class="library-group">
-              <div class="library-group-header">
-                <div>
-                  <strong x-text="group.type.toUpperCase()"></strong>
-                  <span style="font-size: 0.8rem; color: var(--pico-muted-color);" x-text="'(' + group.count + ')'"></span>
-                </div>
-                <div style="text-align: right; font-size: 0.75rem; color: var(--pico-muted-color);">
-                  <span>Last: </span><span x-text="group.lastTouched"></span>
-                </div>
-              </div>
-
-              <!-- Decay Bar -->
-              <div class="decay-bar-container" title="Decay: days since saved / 30">
-                <div 
-                  class="decay-bar" 
-                  :class="group.decayClass" 
-                  :style="'width: ' + group.decayPercent + '%;'"
-                ></div>
-              </div>
-
-              <!-- Group Items List -->
-              <div class="clip-list" style="padding: 0.5rem;">
-                <template x-for="item in group.items" :key="item.id">
-                  <article class="clip-card" :class="{ 'active': selectedId === item.id }">
-                    <div @click="selectItem(item.id)">
-                      <div class="clip-title-row">
-                        <h5 class="clip-title" style="font-size: 0.85rem;" x-text="item.title || item.url"></h5>
-                      </div>
-                      <div class="clip-meta">
-                        <span x-text="item.status"></span>
-                        <span x-text="formatDate(item.saved_at)"></span>
-                      </div>
-                    </div>
-
-                    <!-- Inline Expanded Detail Drawer -->
-                    <div class="clip-detail-drawer" x-show="selectedId === item.id">
-                      <p class="summary" x-text="selectedDetail?.summary || item.summary || 'No summary available.'"></p>
-                      <div class="links">
-                        <div><strong>Vault:</strong> <code x-text="selectedDetail?.vault_path || item.vault_path || 'Inbox/'"></code></div>
-                        <template x-if="item.url && item.url.startsWith('http')">
-                          <div><strong>URL:</strong> <a :href="item.url" target="_blank" rel="noopener noreferrer" x-text="item.url"></a></div>
-                        </template>
-                      </div>
-                      <div class="action-buttons">
-                        <button class="secondary outline" @click.stop="updateStatus(item.id, 'archived')">Archive</button>
-                        <button class="secondary outline" @click.stop="addTag(item.id)">Add tag</button>
-                        <button class="outline" style="color: var(--clipper-decay-red); border-color: var(--clipper-decay-red);" @click.stop="updateStatus(item.id, 'deleted')">Delete</button>
-                      </div>
-                    </div>
-                  </article>
-                </template>
-              </div>
-            </div>
-          </template>
+        <div class="empty-placeholder">
+          <div class="icon">📥</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
         </div>
-      </section>
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line long"></div>
+            <div class="skeleton-line short"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. LIBRARY PAGE -->
+      <div x-show="currentPage === 'library'" x-data="pageLibrary()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
+        </div>
+
+        <div class="empty-placeholder">
+          <div class="icon">📚</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
+        </div>
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line long"></div>
+            <div class="skeleton-line short"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. ASK PAGE -->
+      <div x-show="currentPage === 'ask'" x-data="pageAsk()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
+        </div>
+
+        <div class="empty-placeholder">
+          <div class="icon">💬</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
+        </div>
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line long"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. SKILLS PAGE -->
+      <div x-show="currentPage === 'skills'" x-data="pageSkills()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
+        </div>
+
+        <div class="empty-placeholder">
+          <div class="icon">⚡</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
+        </div>
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line long"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line short"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. SETTINGS PAGE -->
+      <div x-show="currentPage === 'settings'" x-data="pageSettings()">
+        <div class="page-header">
+          <div>
+            <h1 x-text="title"></h1>
+            <p x-text="description"></p>
+          </div>
+        </div>
+
+        <div class="empty-placeholder">
+          <div class="icon">⚙</div>
+          <h3 x-text="title"></h3>
+          <p x-text="statusText"></p>
+        </div>
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line long"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line short"></div>
+          </div>
+        </div>
+      </div>
     </main>
 
-    <!-- Modal: + clip -->
-    <dialog :open="showAddModal">
-      <article>
-        <header>
-          <button aria-label="Close" rel="prev" @click="closeAddModal()"></button>
-          <h3>Add New Clip</h3>
-        </header>
-        <form @submit.prevent="submitAddClip()">
-          <label for="clipUrl">URL or Content</label>
+    <!-- Quick Capture Modal Stub -->
+    <div 
+      class="modal-backdrop" 
+      x-show="showQuickCaptureModal" 
+      @click.self="closeModals()"
+    >
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="quickCaptureTitle">
+        <div class="modal-header">
+          <h3 id="quickCaptureTitle">Quick Capture Clip</h3>
+          <button class="modal-close" @click="closeModals()" aria-label="Close">&times;</button>
+        </div>
+        <form @submit.prevent="submitQuickCapture()">
+          <label for="quickCaptureInput">URL or snippet</label>
           <input 
             type="text" 
-            id="clipUrl" 
-            x-model="newClipUrl" 
+            id="quickCaptureInput" 
+            x-model="quickCaptureUrl" 
             placeholder="https://example.com/article" 
-            required 
-            autofocus
+            required
           >
-          <footer>
-            <button type="button" class="secondary" @click="closeAddModal()">Cancel</button>
-            <button type="submit" class="primary">Queue Clip</button>
-          </footer>
+          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+            <button type="button" class="btn-icon" @click="closeModals()">Cancel</button>
+            <button type="submit" class="btn-clip">Queue Clip</button>
+          </div>
         </form>
-      </article>
-    </dialog>
+      </div>
+    </div>
 
-    <!-- Modal: Settings & Stats -->
-    <dialog :open="showSettingsModal">
-      <article>
-        <header>
-          <button aria-label="Close" rel="prev" @click="closeSettings()"></button>
-          <h3>Clipper Settings & Stats</h3>
-        </header>
-        <div>
-          <p><strong>Daemon Status:</strong> <code>127.0.0.1:7137</code></p>
-          <p><strong>Total Clips:</strong> <span x-text="stats.total"></span></p>
-          <p><strong>Stale Clips (&gt;30d):</strong> <span x-text="stats.stale_30d"></span></p>
-          <div style="margin-top: 1rem;">
-            <strong>By Status:</strong>
-            <ul>
-              <li>Inbox: <span x-text="stats.by_status?.inbox || 0"></span></li>
-              <li>Library: <span x-text="stats.by_status?.library || 0"></span></li>
-              <li>Archived: <span x-text="stats.by_status?.archived || 0"></span></li>
-            </ul>
-          </div>
-          <div>
-            <strong>LAN PWA Pairing:</strong>
-            <p style="font-size: 0.85rem; color: var(--pico-muted-color);">
-              QR code pairing available on <code>/pair</code> endpoint when HAG-7 lands.
-            </p>
-          </div>
+    <!-- Keyboard Shortcuts Modal -->
+    <div 
+      class="modal-backdrop" 
+      x-show="showShortcutsModal" 
+      @click.self="closeModals()"
+    >
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+        <div class="modal-header">
+          <h3 id="shortcutsTitle">Keyboard Shortcuts</h3>
+          <button class="modal-close" @click="closeModals()" aria-label="Close">&times;</button>
         </div>
-        <footer>
-          <button type="button" class="primary" @click="closeSettings()">Close</button>
-        </footer>
-      </article>
-    </dialog>
+        <table class="shortcuts-table">
+          <tbody>
+            <tr>
+              <td><kbd>/</kbd></td>
+              <td>Focus search input</td>
+            </tr>
+            <tr>
+              <td><kbd>c</kbd></td>
+              <td>Open quick-capture clip modal</td>
+            </tr>
+            <tr>
+              <td><kbd>a</kbd></td>
+              <td>Archive selected item (Inbox page)</td>
+            </tr>
+            <tr>
+              <td><kbd>j</kbd> / <kbd>k</kbd></td>
+              <td>Navigate next / previous item in list</td>
+            </tr>
+            <tr>
+              <td><kbd>?</kbd></td>
+              <td>Open keyboard shortcuts overlay</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>Close active modal or panel</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+          <button type="button" class="btn-clip" @click="closeModals()">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container (Bottom-Right) -->
+    <div class="toast-container" aria-live="polite">
+      <template x-for="t in toasts" :key="t.id">
+        <div class="toast-item" :class="t.kind">
+          <span x-text="t.kind === 'error' ? '⚠️' : (t.kind === 'saved' ? '✅' : 'ℹ️')"></span>
+          <span x-text="t.msg"></span>
+        </div>
+      </template>
+    </div>
   </div>
 </body>
 </html>

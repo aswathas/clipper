@@ -1,268 +1,406 @@
-/* Clipper Dashboard — Pico.css Overrides & Layout */
+/* ==========================================================================
+   Clipper Dashboard v0.2 Shell Styles (Pico.css Overrides & Design System)
+   All colors strictly mapped to CSS custom properties. No hard-coded hex.
+   ========================================================================== */
+
+:root {
+  --bg-primary: rgb(255, 255, 255);
+  --bg-surface: rgb(248, 250, 252);
+  --bg-card: rgb(255, 255, 255);
+  --bg-hover: rgb(241, 245, 249);
+  --bg-active: rgb(226, 232, 240);
+
+  --border-color: rgb(226, 232, 240);
+  --border-subtle: rgb(203, 213, 225);
+  --border-focus: rgb(37, 99, 235);
+
+  --text-primary: rgb(15, 23, 42);
+  --text-secondary: rgb(71, 85, 105);
+  --text-muted: rgb(100, 116, 139);
+
+  --accent-primary: rgb(37, 99, 235);
+  --accent-hover: rgb(29, 78, 216);
+  --accent-text: rgb(255, 255, 255);
+
+  --decay-green: rgb(16, 185, 129);
+  --decay-amber: rgb(245, 158, 11);
+  --decay-red: rgb(239, 68, 68);
+
+  --toast-bg: rgb(30, 41, 59);
+  --toast-text: rgb(248, 250, 252);
+  --toast-saved: rgb(16, 185, 129);
+  --toast-error: rgb(239, 68, 68);
+  --toast-info: rgb(59, 130, 246);
+
+  --skeleton-base: rgb(226, 232, 240);
+  --skeleton-shine: rgb(241, 245, 249);
+
+  --modal-backdrop: rgba(15, 23, 42, 0.45);
+
+  --type-article: rgb(59, 130, 246);
+  --type-video: rgb(239, 68, 68);
+  --type-book: rgb(139, 92, 246);
+  --type-repo: rgb(16, 185, 129);
+  --type-code-error: rgb(249, 115, 22);
+  --type-photo: rgb(236, 72, 153);
+  --type-event: rgb(234, 179, 8);
+  --type-paper: rgb(6, 182, 212);
+}
+
+[data-theme="dark"] {
+  --bg-primary: rgb(15, 23, 42);
+  --bg-surface: rgb(30, 41, 59);
+  --bg-card: rgb(24, 34, 50);
+  --bg-hover: rgb(51, 65, 85);
+  --bg-active: rgb(71, 85, 105);
+
+  --border-color: rgb(51, 65, 85);
+  --border-subtle: rgb(71, 85, 105);
+  --border-focus: rgb(96, 165, 250);
+
+  --text-primary: rgb(248, 250, 252);
+  --text-secondary: rgb(203, 213, 225);
+  --text-muted: rgb(148, 163, 184);
+
+  --accent-primary: rgb(59, 130, 246);
+  --accent-hover: rgb(96, 165, 250);
+  --accent-text: rgb(255, 255, 255);
+
+  --decay-green: rgb(16, 185, 129);
+  --decay-amber: rgb(245, 158, 11);
+  --decay-red: rgb(239, 68, 68);
+
+  --toast-bg: rgb(51, 65, 85);
+  --toast-text: rgb(248, 250, 252);
+  --toast-saved: rgb(16, 185, 129);
+  --toast-error: rgb(239, 68, 68);
+  --toast-info: rgb(96, 165, 250);
+
+  --skeleton-base: rgb(51, 65, 85);
+  --skeleton-shine: rgb(71, 85, 105);
+
+  --modal-backdrop: rgba(0, 0, 0, 0.75);
+
+  --type-article: rgb(96, 165, 250);
+  --type-video: rgb(248, 113, 113);
+  --type-book: rgb(167, 139, 250);
+  --type-repo: rgb(52, 211, 153);
+  --type-code-error: rgb(251, 146, 60);
+  --type-photo: rgb(244, 114, 182);
+  --type-event: rgb(250, 204, 21);
+  --type-paper: rgb(34, 211, 238);
+}
 
 [x-cloak] {
   display: none !important;
 }
 
-:root {
-  --clipper-decay-green: #10b981;
-  --clipper-decay-yellow: #f59e0b;
-  --clipper-decay-red: #ef4444;
-}
-
 body {
   margin: 0;
   padding: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
-  background-color: var(--pico-background-color);
 }
 
-.top-bar {
+/* ==========================================================================
+   Top Navigation Bar (Sticky)
+   ========================================================================== */
+
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid var(--pico-muted-border-color);
-  background-color: var(--pico-card-background-color);
-  position: sticky;
-  top: 0;
-  z-index: 50;
+  padding: 0.65rem 1.5rem;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.brand-section {
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.brand {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.brand-icon {
   font-size: 1.25rem;
-  color: var(--pico-primary);
-  white-space: nowrap;
 }
 
-.search-section {
-  flex: 1;
-  max-width: 540px;
-  margin: 0 auto;
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.search-section input[type="search"] {
-  margin-bottom: 0;
-  height: 2.25rem;
+.nav-link {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  color: var(--text-secondary);
   font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  cursor: pointer;
 }
 
-.actions-section {
+.nav-link:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-link.active {
+  background-color: var(--bg-active);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.nav-center {
+  flex: 1;
+  max-width: 440px;
+  position: relative;
+}
+
+.search-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.search-input-wrap input {
+  width: 100%;
+  margin-bottom: 0;
+  height: 2.15rem;
+  padding: 0 2rem 0 0.85rem;
+  font-size: 0.875rem;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 6px;
+}
+
+.search-input-wrap input:focus {
+  border-color: var(--border-focus);
+}
+
+.search-kbd {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  padding: 0.1rem 0.35rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.nav-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  white-space: nowrap;
 }
 
-.actions-section button {
+.btn-icon {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.6rem;
   margin-bottom: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-clip {
+  background-color: var(--accent-primary);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-primary);
+  font-weight: 600;
+  font-size: 0.85rem;
   padding: 0.4rem 0.85rem;
-  font-size: 0.875rem;
+  margin-bottom: 0;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
-/* Three-pane layout grid */
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
-  min-height: calc(100vh - 65px);
+.btn-clip:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
-@media (min-width: 900px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr 1fr 1.5fr;
-    gap: 1.25rem;
-    align-items: start;
+/* Responsive top nav scroll for mobile (<900px) */
+@media (max-width: 900px) {
+  .top-nav {
+    flex-wrap: wrap;
+    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+  }
+  .nav-left {
+    order: 1;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .nav-links {
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-bottom: 0.25rem;
+  }
+  .nav-center {
+    order: 3;
+    max-width: 100%;
+    width: 100%;
+  }
+  .nav-right {
+    order: 2;
   }
 }
 
-.pane {
-  background: var(--pico-card-background-color);
-  border: 1px solid var(--pico-muted-border-color);
-  border-radius: var(--pico-border-radius);
-  padding: 1rem;
+/* ==========================================================================
+   Main Content Layout
+   ========================================================================== */
+
+.main-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  min-height: calc(100vh - 65px);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.page-header p {
+  margin: 0.25rem 0 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ==========================================================================
+   Placeholders & Empty States
+   ========================================================================== */
+
+.empty-placeholder {
   display: flex;
   flex-direction: column;
-  min-height: 500px;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-}
-
-.pane-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding-bottom: 0.5rem;
+  justify-content: center;
+  text-align: center;
+  padding: 3rem 1.5rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-surface);
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.empty-placeholder .icon {
+  font-size: 2.25rem;
   margin-bottom: 0.75rem;
-  border-bottom: 2px solid var(--pico-muted-border-color);
 }
 
-.pane-header h3 {
+.empty-placeholder h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.15rem;
+}
+
+.empty-placeholder p {
   margin: 0;
-  font-size: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--pico-color);
+  font-size: 0.9rem;
 }
 
-.pane-header .badge {
-  background: var(--pico-primary-background);
-  color: var(--pico-primary-inverse);
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
+/* ==========================================================================
+   Skeleton Loading Blocks
+   ========================================================================== */
 
-/* Clip cards */
-.clip-list {
+.skeleton-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  margin-top: 1rem;
 }
 
-.clip-card {
-  border: 1px solid var(--pico-muted-border-color);
-  border-radius: var(--pico-border-radius);
-  padding: 0.75rem;
-  background: var(--pico-background-color);
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.clip-card:hover {
-  border-color: var(--pico-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-}
-
-.clip-card.active {
-  border-color: var(--pico-primary);
-  background: var(--pico-card-background-color);
-}
-
-.clip-title-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.clip-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: var(--pico-color);
-  margin: 0;
-  word-break: break-word;
-}
-
-.clip-type-tag {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  font-weight: 700;
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
-  background: var(--pico-secondary-background);
-  color: var(--pico-secondary-inverse);
-}
-
-.clip-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
-  color: var(--pico-muted-color);
-  margin-top: 0.25rem;
-}
-
-.clip-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.4rem;
-}
-
-.tag-badge {
-  font-size: 0.7rem;
-  background: var(--pico-muted-border-color);
-  padding: 0.1rem 0.4rem;
-  border-radius: 12px;
-  color: var(--pico-color);
-}
-
-/* Expanded Detail Drawer */
-.clip-detail-drawer {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed var(--pico-muted-border-color);
-  cursor: default;
-}
-
-.clip-detail-drawer .summary {
-  font-size: 0.85rem;
-  line-height: 1.4;
-  margin-bottom: 0.75rem;
-  color: var(--pico-color);
-}
-
-.clip-detail-drawer .links {
+.skeleton-card {
+  padding: 1rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.8rem;
-  margin-bottom: 0.75rem;
-  word-break: break-all;
-}
-
-.clip-detail-drawer .action-buttons {
-  display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
 }
 
-.clip-detail-drawer .action-buttons button {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
-  margin-bottom: 0;
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s infinite;
 }
 
-/* Library Pane Specifics */
-.library-group {
-  margin-bottom: 1.25rem;
-  border: 1px solid var(--pico-muted-border-color);
-  border-radius: var(--pico-border-radius);
-  overflow: hidden;
+.skeleton-line.short { width: 35%; }
+.skeleton-line.medium { width: 65%; }
+.skeleton-line.long { width: 90%; }
+.skeleton-line.full { width: 100%; }
+
+@keyframes skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-.library-group-header {
-  background: var(--pico-background-color);
-  padding: 0.6rem 0.75rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.library-group-header:hover {
-  background: var(--pico-muted-border-color);
-}
+/* ==========================================================================
+   Decay Bar
+   ========================================================================== */
 
 .decay-bar-container {
   width: 100%;
-  height: 5px;
-  background-color: var(--pico-muted-border-color);
-  border-radius: 3px;
+  height: 4px;
+  background-color: var(--border-color);
+  border-radius: 2px;
   overflow: hidden;
-  margin-top: 0.4rem;
 }
 
 .decay-bar {
@@ -270,27 +408,186 @@ body {
   transition: width 0.3s ease;
 }
 
-.decay-green {
-  background-color: var(--clipper-decay-green);
+.decay-bar.green {
+  background-color: var(--decay-green);
 }
 
-.decay-yellow {
-  background-color: var(--clipper-decay-yellow);
+.decay-bar.amber {
+  background-color: var(--decay-amber);
 }
 
-.decay-red {
-  background-color: var(--clipper-decay-red);
+.decay-bar.red {
+  background-color: var(--decay-red);
 }
 
-.empty-state {
-  text-align: center;
-  padding: 2rem 1rem;
-  color: var(--pico-muted-color);
-  font-size: 0.85rem;
+/* ==========================================================================
+   Type Badges & Icons
+   ========================================================================== */
+
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background-color: var(--bg-hover);
+  color: var(--text-secondary);
 }
 
-/* Modal styling */
-dialog article {
-  max-width: 500px;
+.type-badge.article { color: var(--type-article); }
+.type-badge.video { color: var(--type-video); }
+.type-badge.book { color: var(--type-book); }
+.type-badge.repo { color: var(--type-repo); }
+.type-badge.code-error { color: var(--type-code-error); }
+.type-badge.photo { color: var(--type-photo); }
+.type-badge.event { color: var(--type-event); }
+.type-badge.paper { color: var(--type-paper); }
+
+.type-svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+}
+
+/* ==========================================================================
+   Modals & Overlays
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--modal-backdrop);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-dialog {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  margin: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.shortcuts-table td {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.shortcuts-table kbd {
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Toasts (Bottom-Right, 3s)
+   ========================================================================== */
+
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast-item {
+  pointer-events: auto;
+  padding: 0.65rem 1rem;
+  border-radius: 6px;
+  background-color: var(--toast-bg);
+  color: var(--toast-text);
+  font-size: 0.875rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-item.saved { border-left: 4px solid var(--toast-saved); }
+.toast-item.error { border-left: 4px solid var(--toast-error); }
+.toast-item.info { border-left: 4px solid var(--toast-info); }
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Code Blocks
+   ========================================================================== */
+
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875rem;
+}
+
+pre {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.85rem;
+  overflow-x: auto;
+  color: var(--text-primary);
 }
