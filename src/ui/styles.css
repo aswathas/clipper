@@ -468,6 +468,40 @@ button {
 }
 
 /* --------------------------------------------------------------------------
+   Type Glyphs & Badges (DESIGN.md Section 1)
+   -------------------------------------------------------------------------- */
+
+.type-glyph {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.5;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.type-glyph.header-glyph {
+  width: 20px;
+  height: 20px;
+}
+
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.type-badge-label {
+  color: var(--mute-2);
+}
+
+/* --------------------------------------------------------------------------
    Buttons & Basic Components
    -------------------------------------------------------------------------- */
 
