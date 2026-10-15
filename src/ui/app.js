@@ -484,6 +484,24 @@ function pageToday() {
       if (days < 7) return `${days}d ago`;
       const weeks = Math.floor(days / 7);
       return `${weeks}w ago`;
+    },
+
+    firstUrl: "",
+    async saveFirstUrl() {
+      if (!this.firstUrl.trim()) return;
+      toast("Saving URL to library...", "info");
+      try {
+        await api("/api/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: this.firstUrl.trim() })
+        });
+        toast("Saved! Welcome to your library", "info");
+        this.firstUrl = "";
+        await this.loadItems();
+      } catch (err) {
+        toast("Failed to save: " + err.message, "danger");
+      }
     }
   };
 }
@@ -1396,10 +1414,24 @@ function clipperShell() {
       }, 350);
     },
 
+    isOffline: false,
+
     init() {
       ThemeManager.init();
       this.initRouter();
       this.initKeybindings();
+      this.initNetwork();
+    },
+
+    initNetwork() {
+      window.addEventListener("offline", () => {
+        this.isOffline = true;
+        toast("Connection lost — retrying in 10s…", "danger");
+      });
+      window.addEventListener("online", () => {
+        this.isOffline = false;
+        toast("Connection restored", "info");
+      });
     },
 
     initRouter() {

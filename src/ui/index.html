@@ -208,6 +208,16 @@
                 </article>
               </template>
             </div>
+
+            <!-- Today Empty State (DESIGN.md Section 3 & 10) -->
+            <div x-show="items.length === 0" class="empty-state">
+              <h3 class="empty-state-title">Your library is quiet</h3>
+              <p class="empty-state-desc">The first save is the hardest — try it now.</p>
+              <form @submit.prevent="saveFirstUrl()" style="display: flex; gap: var(--sp-2);">
+                <input type="url" x-model="firstUrl" placeholder="Save your first URL..." required style="flex: 1; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink); font-size: var(--fs-sm);" />
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+              </form>
+            </div>
           </div>
 
           <!-- 3. STALE & FORGOTTEN -->
@@ -364,8 +374,15 @@
             </div>
           </div>
 
+          <!-- Loading Skeleton (DESIGN.md Section 10) -->
+          <div x-show="loading" class="skeleton-grid">
+            <div class="skeleton-pulse skeleton-card"></div>
+            <div class="skeleton-pulse skeleton-card"></div>
+            <div class="skeleton-pulse skeleton-card"></div>
+          </div>
+
           <!-- Grid View -->
-          <div x-show="viewMode === 'grid' && filteredItems().length > 0" class="library-grid">
+          <div x-show="!loading && viewMode === 'grid' && filteredItems().length > 0" class="library-grid">
             <template x-for="item in filteredItems()" :key="item.id">
               <article class="library-card" @click="openDetail(item)">
                 <div class="library-card-accent" :style="{ backgroundColor: getTypeMeta(item.type).colorVar }"></div>
@@ -418,10 +435,10 @@
             </template>
           </div>
 
-          <!-- Empty State -->
-          <div x-show="filteredItems().length === 0" style="text-align: center; padding: var(--sp-8) var(--sp-4); max-width: 480px; margin: 0 auto;">
-            <h3 style="font-family: var(--font-display); font-size: var(--fs-xl); color: var(--ink); margin-bottom: var(--sp-2);">Nothing saved yet</h3>
-            <p style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-5);">The library grows one item at a time.</p>
+          <!-- Empty State (DESIGN.md Section 10) -->
+          <div x-show="!loading && filteredItems().length === 0" class="empty-state">
+            <h3 class="empty-state-title">Nothing saved yet</h3>
+            <p class="empty-state-desc">The library grows one item at a time.</p>
             <form @submit.prevent="saveUrl()" style="display: flex; gap: var(--sp-2);">
               <input type="url" x-model="newUrl" placeholder="Paste a URL to save..." required style="flex: 1; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink); font-size: var(--fs-sm);" />
               <button type="submit" class="btn btn-primary btn-sm">Save</button>
@@ -473,8 +490,17 @@
             </button>
           </div>
 
+          <!-- Loading Skeleton (DESIGN.md Section 10) -->
+          <div x-show="loading" style="display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4);">
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+          </div>
+
           <!-- Inbox Rows List -->
-          <div x-show="filteredItems().length > 0" class="inbox-list">
+          <div x-show="!loading && filteredItems().length > 0" class="inbox-list">
             <template x-for="(item, idx) in filteredItems()" :key="item.id">
               <div class="inbox-row"
                    :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }"
@@ -530,10 +556,10 @@
             </div>
           </div>
 
-          <!-- Empty State -->
-          <div x-show="filteredItems().length === 0" style="text-align: center; padding: var(--sp-8) var(--sp-4); max-width: 480px; margin: 0 auto;">
-            <h3 style="font-family: var(--font-display); font-size: var(--fs-xl); color: var(--ink); margin-bottom: var(--sp-2);">Inbox is zero</h3>
-            <p style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-5);">Everything is filed away in your library.</p>
+          <!-- Empty State (DESIGN.md Section 10) -->
+          <div x-show="!loading && filteredItems().length === 0" class="empty-state">
+            <h3 class="empty-state-title">Inbox is zero</h3>
+            <p class="empty-state-desc">Everything is filed away in your library.</p>
             <a href="#/library" class="btn btn-secondary btn-sm">Browse Library →</a>
           </div>
         </section>
@@ -704,8 +730,15 @@
             </div>
           </div>
 
+          <!-- Loading Skeleton (DESIGN.md Section 10) -->
+          <div x-show="loading" style="display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4);">
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+            <div class="skeleton-pulse skeleton-row"></div>
+          </div>
+
           <!-- Skills Card List -->
-          <div class="skills-list">
+          <div x-show="!loading" class="skills-list">
             <template x-for="skill in skills" :key="skill.name">
               <div class="skill-card">
                 <div class="skill-info">

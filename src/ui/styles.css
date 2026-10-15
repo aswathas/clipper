@@ -1817,6 +1817,96 @@ button {
   gap: var(--sp-2);
 }
 
+/* --------------------------------------------------------------------------
+   10. Empty / Loading / Error States (DESIGN.md Section 10)
+   -------------------------------------------------------------------------- */
+
+.empty-state {
+  max-width: 480px;
+  margin: var(--sp-8) auto;
+  text-align: center;
+  padding: var(--sp-6) var(--sp-4);
+}
+
+.empty-state-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
+}
+
+.empty-state-desc {
+  font-size: var(--fs-sm);
+  color: var(--mute);
+  line-height: 1.5;
+  margin-bottom: var(--sp-5);
+}
+
+/* Skeletons */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  background-color: var(--surface-2);
+  border-radius: var(--r-md);
+}
+
+.skeleton-row {
+  height: 64px;
+  width: 100%;
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-2);
+}
+
+.skeleton-card {
+  height: 250px;
+  border-radius: var(--r-md);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+/* Page Error */
+.page-error-card {
+  max-width: 520px;
+  margin: var(--sp-8) auto;
+  background-color: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  padding: var(--sp-6);
+  text-align: center;
+  box-shadow: var(--shadow-2);
+}
+
+.page-error-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: var(--sp-2);
+}
+
+.page-error-desc {
+  font-size: var(--fs-sm);
+  color: var(--mute);
+  line-height: 1.5;
+  margin-bottom: var(--sp-4);
+}
+
+.inline-error {
+  font-size: var(--fs-xs);
+  color: var(--danger);
+  margin-top: 4px;
+}
+
 /* Toasts */
 .toast-container {
   position: fixed;
