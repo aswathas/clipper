@@ -44,24 +44,25 @@ pub fn default_memory() -> &'static str {
     DEFAULT_MEMORY
 }
 
-/// `<state dir>/memory`.
+/// `<state dir>/memory` — the default location.
 pub fn memory_dir(state_dir: &Path) -> PathBuf {
     state_dir.join("memory")
 }
 
-fn part_path(state_dir: &Path, name: &str) -> PathBuf {
-    memory_dir(state_dir).join(format!("{name}.md"))
+/// `dir` **is** the memory directory (see `Config::memory_dir`).
+fn part_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{name}.md"))
 }
 
 /// Write any missing part from the embedded default. Idempotent.
-pub fn seed_defaults(state_dir: &Path) -> io::Result<()> {
-    fs::create_dir_all(memory_dir(state_dir))?;
+pub fn seed_defaults(dir: &Path) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
     for (name, default) in [
         (SOUL, DEFAULT_SOUL),
         (USER, DEFAULT_USER),
         (MEMORY, DEFAULT_MEMORY),
     ] {
-        let path = part_path(state_dir, name);
+        let path = part_path(dir, name);
         if !path.exists() {
             fs::write(&path, default)?;
         }
@@ -70,18 +71,18 @@ pub fn seed_defaults(state_dir: &Path) -> io::Result<()> {
 }
 
 /// Seed anything missing, then read all three parts.
-pub fn load_now(state_dir: &Path) -> io::Result<Memory> {
-    seed_defaults(state_dir)?;
+pub fn load_now(dir: &Path) -> io::Result<Memory> {
+    seed_defaults(dir)?;
     Ok(Memory {
-        soul: fs::read_to_string(part_path(state_dir, SOUL))?,
-        user: fs::read_to_string(part_path(state_dir, USER))?,
-        memory: fs::read_to_string(part_path(state_dir, MEMORY))?,
+        soul: fs::read_to_string(part_path(dir, SOUL))?,
+        user: fs::read_to_string(part_path(dir, USER))?,
+        memory: fs::read_to_string(part_path(dir, MEMORY))?,
     })
 }
 
 /// Awaitable form of [`load_now`], for callers already on a runtime.
-pub async fn load(state_dir: &Path) -> io::Result<Memory> {
-    let dir = state_dir.to_path_buf();
+pub async fn load(dir: &Path) -> io::Result<Memory> {
+    let dir = dir.to_path_buf();
     match tokio::task::spawn_blocking(move || load_now(&dir)).await {
         Ok(result) => result,
         Err(e) => Err(io::Error::other(e)),
@@ -110,20 +111,20 @@ impl Memory {
     }
 }
 
-fn write_part(state_dir: &Path, name: &str, content: &str) -> io::Result<()> {
-    fs::create_dir_all(memory_dir(state_dir))?;
-    let path = part_path(state_dir, name);
+fn write_part(dir: &Path, name: &str, content: &str) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    let path = part_path(dir, name);
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, content)?;
     fs::rename(&tmp, &path)
 }
 
-/// Write one part back atomically, under the active state directory.
+/// Write one part back atomically, at the default location.
 pub fn save_part(name: &str, content: &str) -> io::Result<()> {
-    write_part(&config::state_dir(), name, content)
+    write_part(&config::Config::default().memory_dir(), name, content)
 }
 
-/// Same as [`save_part`] but against an explicit state directory.
-pub fn save_part_at(state_dir: &Path, name: &str, content: &str) -> io::Result<()> {
-    write_part(state_dir, name, content)
+/// Same as [`save_part`] but against an explicit memory directory.
+pub fn save_part_at(dir: &Path, name: &str, content: &str) -> io::Result<()> {
+    write_part(dir, name, content)
 }

@@ -22,7 +22,9 @@ pub mod memory;
 pub mod pairing;
 pub mod prompts;
 pub mod queue;
+pub mod routes_memory;
 pub mod routes_skills;
+pub mod routes_soul;
 pub mod screenshot;
 pub mod selfcheck;
 pub mod server;
@@ -286,10 +288,10 @@ pub fn run() {
                 })?;
 
             // ---- the second brain: soul / user / memory ----
-            let memory = Arc::new(memory::load_now(&config::state_dir())?);
+            let memory = Arc::new(memory::load_now(&cfg.memory_dir())?);
             println!(
                 "Clipper: memory loaded from {}",
-                memory::memory_dir(&config::state_dir()).display()
+                cfg.memory_dir().display()
             );
 
             // ---- background drainer ----

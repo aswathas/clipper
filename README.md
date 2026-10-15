@@ -162,6 +162,8 @@ accepts a leading `~`.
 | `queue.timeout_s` | `120` | per-batch provider timeout |
 | `server.bind` / `.port` | `127.0.0.1` / `7137` | dashboard + API |
 | `prompts.extract` | `~/.clipper/prompts/extract.md` | the extraction prompt |
+| `skills.dir` | `~/.clipper/skills` | where skill markdown files live |
+| `memory.dir` | `~/.clipper/memory` | `soul.md`, `user.md`, `memory.md` |
 
 ### Memory files
 
@@ -211,6 +213,16 @@ Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard
 | `PUT /api/skills/{name}` `{body_md, source?}` | writes the file and re-indexes it |
 | `DELETE /api/skills/{name}` | removes the file and its row |
 | `POST /api/skills/rescan` | rebuilds the skill index from the directory |
+| `GET /api/memory` | `{parts}` — each with `bytes`, `mtime`, `etag` |
+| `GET /api/memory/{part}` | `{part, content, mtime, etag}`; `part` is `soul`/`user`/`memory` |
+| `PUT /api/memory/{part}` `{content, if_match?}` | `{ok, mtime, etag}`; **`412`** when `if_match` is stale |
+| `GET /api/soul` | the soul plus `settings` parsed from its frontmatter |
+| `PUT /api/soul` `{content, if_match?}` | same rules as `/api/memory/soul` |
+
+Optimistic concurrency uses `If-Match` against the part's `etag` — a SHA-256 content
+hash, not the mtime. Filesystems that only tick mtime once per second would let two
+edits in the same tick silently clobber each other; a hash cannot. Send the `etag` you
+last read, or omit `if_match` to force the write.
 
 `items.saved_at` is Unix **seconds** as a JSON *number* — the dashboard multiplies by 1000
 before formatting.

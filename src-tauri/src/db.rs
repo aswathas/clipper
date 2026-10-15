@@ -118,6 +118,13 @@ CREATE TABLE IF NOT EXISTS skills (
   token_estimate INTEGER NOT NULL DEFAULT 0,
   last_modified INTEGER NOT NULL DEFAULT 0
 );
+
+-- Memory/soul parts (S5): an mtime + hash cache backing If-Match.
+CREATE TABLE IF NOT EXISTS memory_file (
+  path TEXT PRIMARY KEY,
+  mtime INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL DEFAULT ''
+);
 "#,
     )
 }
@@ -286,7 +293,6 @@ fn tags_to_json(tags: &[String]) -> String {
 }
 
 // ------------------------------------------------------------------- skills
-
 /// A skill file, mirrored into the index (S4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
@@ -353,8 +359,7 @@ pub fn delete_skill(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM skills WHERE name = ?1", params![name])? > 0)
 }
 
-fn row_to_skill(row: &rusqlite::Row<'_>) -> rusqlite::Result<Skill> {
-    let frontmatter: Option<String> = row.get(3)?;
+fn row_to_skill(row: &rusqlite::Row<'_>) -> rusqlite::Result<Skill> {    let frontmatter: Option<String> = row.get(3)?;
     let parsed: serde_json::Value = frontmatter
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_else(|| serde_json::json!({}));
@@ -371,6 +376,33 @@ fn row_to_skill(row: &rusqlite::Row<'_>) -> rusqlite::Result<Skill> {
         token_estimate: row.get(4)?,
         last_modified: row.get(5)?,
     })
+}
+
+// -------------------------------------------------------------- memory files
+
+/// Record a memory/soul part's mtime and hash.
+pub fn upsert_memory_file(
+    conn: &Connection,
+    path: &str,
+    mtime: i64,
+    sha256: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO memory_file (path, mtime, sha256) VALUES (?1, ?2, ?3)
+         ON CONFLICT(path) DO UPDATE SET mtime = excluded.mtime, sha256 = excluded.sha256",
+        params![path, mtime, sha256],
+    )?;
+    Ok(())
+}
+
+/// The cached `(mtime, sha256)` for a part, if it has been seen.
+pub fn memory_file(conn: &Connection, path: &str) -> rusqlite::Result<Option<(i64, String)>> {
+    conn.query_row(
+        "SELECT mtime, sha256 FROM memory_file WHERE path = ?1",
+        params![path],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
 }
 
 /// FTS5 MATCH wants a phrase; wrap the user's text so their punctuation cannot

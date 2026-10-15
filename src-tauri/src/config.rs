@@ -73,6 +73,7 @@ pub struct Config {
     pub server: ServerCfg,
     pub prompts: PromptsCfg,
     pub skills: SkillsCfg,
+    pub memory: MemoryCfg,
 }
 
 impl Default for Config {
@@ -84,6 +85,22 @@ impl Default for Config {
             server: ServerCfg::default(),
             prompts: PromptsCfg::default(),
             skills: SkillsCfg::default(),
+            memory: MemoryCfg::default(),
+        }
+    }
+}
+
+/// Where `soul.md`, `user.md` and `memory.md` live.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryCfg {
+    pub dir: String,
+}
+
+impl Default for MemoryCfg {
+    fn default() -> Self {
+        Self {
+            dir: "~/.clipper/memory".into(),
         }
     }
 }
@@ -268,6 +285,16 @@ impl Config {
 
     pub fn staging_dir(&self) -> PathBuf {
         expand_tilde(&self.queue.staging_dir)
+    }
+
+    /// The soul/user/memory directory.
+    pub fn memory_dir(&self) -> PathBuf {
+        expand_tilde(&self.memory.dir)
+    }
+
+    /// `<state dir>`, for callers that need it directly.
+    pub fn state_dir(&self) -> PathBuf {
+        state_dir()
     }
 
     pub fn skills_dir(&self) -> PathBuf {

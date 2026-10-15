@@ -1033,8 +1033,8 @@ fn hag10_memory_injection() -> Result<(), String> {
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 
     // ---- 1-2. first run seeds the three files from the embedded defaults ----
-    let seeded = memory::load_now(&root).map_err(|e| e.to_string())?;
     let dir = memory::memory_dir(&root);
+    let seeded = memory::load_now(&dir).map_err(|e| e.to_string())?;
     for (name, expected) in [
         (memory::SOUL, memory::default_soul()),
         (memory::USER, memory::default_user()),
@@ -1058,10 +1058,10 @@ fn hag10_memory_injection() -> Result<(), String> {
     if edited == memory::default_user() {
         return Err("could not build the edited user.md".into());
     }
-    memory::save_part_at(&root, memory::USER, &edited).map_err(|e| e.to_string())?;
+    memory::save_part_at(&dir, memory::USER, &edited).map_err(|e| e.to_string())?;
 
     // ---- 4. a reload picks the edit up, and the header carries all three ----
-    let reloaded = memory::load_now(&root).map_err(|e| e.to_string())?;
+    let reloaded = memory::load_now(&dir).map_err(|e| e.to_string())?;
     let header = memory::render_header(&reloaded);
     if !header.starts_with("# Soul") {
         return Err(format!(
@@ -1655,6 +1655,224 @@ pub fn run_hag14() -> i32 {
         0
     } else {
         println!("hag14 self-check: {failed} of {total} FAILED");
+        1
+    }
+}
+
+// ========================================================= HAG-15 self-check
+
+/// HAG-15 (S5): memory/soul over HTTP, with If-Match optimistic concurrency.
+pub fn run_hag15() -> i32 {
+    use crate::{db, routes_memory, server};
+
+    println!("hag15 self-check");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    let root = std::env::temp_dir().join(format!("clipper-hag15-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, Config, db::Db), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.skills.dir = temp(root.join("skills"));
+        cfg.memory.dir = temp(root.join("memory"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+        crate::memory::load_now(&cfg.memory_dir()).map_err(|e| e.to_string())?;
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new("hag15".to_string())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(server::serve(listener, state));
+        });
+        wait_for_server(addr.port())?;
+        Ok((addr.port(), cfg, index_db))
+    })();
+
+    let (port, cfg, index_db) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+    let user_path = cfg.memory_dir().join("user.md");
+
+    // 1. all three parts are listed
+    gate!("memory_parts_are_listed", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/memory", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/memory -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let parts = payload["parts"].as_array().ok_or("no parts array")?;
+        if parts.len() != 3 {
+            return Err(format!("expected 3 parts, got {} ({body})", parts.len()));
+        }
+        for part in parts {
+            if part["etag"].as_str().unwrap_or("").len() != 16 {
+                return Err(format!("bad etag for {}: {}", part["part"], part["etag"]));
+            }
+            if part["bytes"].as_i64().unwrap_or(0) <= 0 {
+                return Err(format!("{} reports 0 bytes", part["part"]));
+            }
+        }
+        Ok(())
+    })());
+
+    // 2. a matching If-Match writes and returns the new version
+    gate!("matching_etag_writes", (|| -> Result<(), String> {
+        let (_, body) = http(port, "GET", "/api/memory/user", None)?;
+        let before: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let etag = before["etag"].as_str().unwrap_or("").to_string();
+
+        let edited = before["content"]
+            .as_str()
+            .unwrap_or("")
+            .replace("expertise: []", "expertise: [rust]");
+        let request = json!({ "content": edited, "if_match": etag }).to_string();
+        let (status, body) = http(port, "PUT", "/api/memory/user", Some(&request))?;
+        if status != 200 {
+            return Err(format!("PUT -> {status} {body}"));
+        }
+        let after: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if after["etag"].as_str() == Some(etag.as_str()) {
+            return Err("the etag did not change after an edit".into());
+        }
+        let on_disk = fs::read_to_string(&user_path).map_err(|e| e.to_string())?;
+        if !on_disk.contains("expertise: [rust]") {
+            return Err("the file on disk was not updated".into());
+        }
+        Ok(())
+    })());
+
+    // 3. the gate that matters: a stale If-Match must not lose the update
+    gate!("stale_etag_is_rejected_412", (|| -> Result<(), String> {
+        let (_, body) = http(port, "GET", "/api/memory/user", None)?;
+        let current: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let current_etag = current["etag"].as_str().unwrap_or("").to_string();
+        let before = fs::read_to_string(&user_path).map_err(|e| e.to_string())?;
+
+        let request =
+            json!({ "content": "clobbered", "if_match": "0000000000000000" }).to_string();
+        let (status, body) = http(port, "PUT", "/api/memory/user", Some(&request))?;
+        if status != 412 {
+            return Err(format!("stale PUT -> {status}, expected 412 ({body})"));
+        }
+        let after = fs::read_to_string(&user_path).map_err(|e| e.to_string())?;
+        if after != before {
+            return Err("a rejected write still changed the file".into());
+        }
+        if !body.contains(&current_etag) {
+            return Err(format!("412 did not report the current etag: {body}"));
+        }
+        Ok(())
+    })());
+
+    // 4. no If-Match is a deliberate force
+    gate!("missing_if_match_forces", (|| -> Result<(), String> {
+        let request = json!({ "content": "---\nexpertise: [forced]\n---\n\nforced\n" }).to_string();
+        let (status, body) = http(port, "PUT", "/api/memory/user", Some(&request))?;
+        if status != 200 {
+            return Err(format!("forced PUT -> {status} {body}"));
+        }
+        Ok(())
+    })());
+
+    // 5. only the three known parts are addressable
+    gate!("unknown_part_is_rejected", (|| -> Result<(), String> {
+        for part in ["bogus", "soul.md", "..", "user.md"] {
+            let (status, _) = http(port, "GET", &format!("/api/memory/{part}"), None)?;
+            if status != 400 && status != 404 {
+                return Err(format!("GET {part} -> {status}, expected 400/404"));
+            }
+        }
+        Ok(())
+    })());
+
+    // 6. the soul is surfaced with parsed settings
+    gate!("soul_exposes_parsed_settings", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/soul", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/soul -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let settings = &payload["settings"];
+        if settings["tone"] != "concise, technical" {
+            return Err(format!("tone = {}", settings["tone"]));
+        }
+        if settings["language"] != "en" {
+            return Err(format!("language = {}", settings["language"]));
+        }
+        if settings["max_summary_words"].as_i64() != Some(25) {
+            return Err(format!("max_summary_words = {}", settings["max_summary_words"]));
+        }
+        let avoid = settings["avoid"].as_array().cloned().unwrap_or_default();
+        if avoid.len() != 4 {
+            return Err(format!("avoid = {}", settings["avoid"]));
+        }
+        Ok(())
+    })());
+
+    // 7. the cache row matches what was written
+    gate!("cache_tracks_writes", (|| -> Result<(), String> {
+        let (_, body) = http(port, "GET", "/api/memory/user", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let etag = payload["etag"].as_str().unwrap_or("").to_string();
+
+        let conn = index_db.lock().unwrap_or_else(|p| p.into_inner());
+        let row = crate::db::memory_file(&conn, &user_path.to_string_lossy())
+            .map_err(|e| e.to_string())?
+            .ok_or("no memory_file row for user.md")?;
+        if row.1 != etag {
+            return Err(format!("cache hash {} != etag {}", row.1, etag));
+        }
+        Ok(())
+    })());
+
+    let _ = routes_memory::PARTS;
+
+    if failed == 0 {
+        println!("hag15 self-check: OK ({total} gates)");
+        0
+    } else {
+        println!("hag15 self-check: {failed} of {total} FAILED");
         1
     }
 }

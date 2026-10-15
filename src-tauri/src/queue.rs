@@ -27,13 +27,19 @@ pub fn host_of(url: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_string()
 }
 
-/// `sha256(url)[..16]`, hex.
-pub fn url_hash(url: &str) -> String {
+/// `sha256(input)[..16]`, hex. Used for URL dedupe, archive hashes and the
+/// memory files' `etag`.
+pub fn sha256_16(input: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(url.trim().as_bytes());
+    hasher.update(input.as_bytes());
     let digest = hasher.finalize();
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
     hex.get(..16).unwrap_or(&hex).to_string()
+}
+
+/// `sha256(url)[..16]`, hex.
+pub fn url_hash(url: &str) -> String {
+    sha256_16(url.trim())
 }
 
 /// One captured item in `inbox.jsonl`.
