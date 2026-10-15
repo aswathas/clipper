@@ -118,6 +118,12 @@ impl Default for ClaudeCfg {
 pub struct ImageCfg {
     pub backend: String,
     pub prompt_hint: String,
+    /// Optional provider override for image batches. When absent, images are
+    /// sent to `[provider.claude]` like everything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
 }
 
 impl Default for ImageCfg {
@@ -126,6 +132,8 @@ impl Default for ImageCfg {
             backend: "claude-via-mcp".into(),
             prompt_hint: "Use mcp__MiniMax__understand_image to caption. Return same markdown schema."
                 .into(),
+            command: None,
+            args: None,
         }
     }
 }

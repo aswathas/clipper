@@ -673,3 +673,121 @@ fn wait_for_server(port: u16) -> Result<(), String> {
     }
     Err(format!("server on 127.0.0.1:{port} never came up"))
 }
+
+// ========================================================== HAG-6 self-check
+
+/// HAG-6: clipboard image -> staging PNG -> queue -> drainer -> vault.
+pub fn run_hag6() -> i32 {
+    println!("hag6 self-check");
+    let mut failed = 0;
+    match hag6_image_capture() {
+        Ok(()) => println!("  PASS hag6_image_capture"),
+        Err(message) => {
+            failed += 1;
+            println!("  FAIL hag6_image_capture: {message}");
+        }
+    }
+
+    if failed == 0 {
+        println!("hag6 self-check: OK (1 check)");
+        0
+    } else {
+        println!("hag6 self-check: {failed} FAILED");
+        1
+    }
+}
+
+fn hag6_image_capture() -> Result<(), String> {
+    use crate::{frontmatter, screenshot};
+
+    let fixture = Fixture::new("hag6");
+    let lock = Arc::new(Mutex::new(()));
+
+    // A 1x1 red RGBA image, through the real save-and-queue path the hotkey uses.
+    let id = screenshot::save_and_queue(&fixture.cfg, 1, 1, vec![255, 0, 0, 255], "screenshot")
+        .map_err(|e| e.to_string())?
+        .ok_or("save_and_queue refused a valid 1x1 image")?;
+
+    let queued = queue::read_lines(&fixture.cfg.inbox_jsonl()).map_err(|e| e.to_string())?;
+    if queued.len() != 1 {
+        return Err(format!("{} queue lines, expected 1", queued.len()));
+    }
+    let entry: Value = serde_json::from_str(&queued[0]).map_err(|e| e.to_string())?;
+    if entry["type"] != "image" {
+        return Err(format!("queue type = {}", entry["type"]));
+    }
+    if entry["source"] != "screenshot" {
+        return Err(format!("queue source = {}", entry["source"]));
+    }
+    if entry["id"] != id.as_str() {
+        return Err("queued id does not match the returned id".into());
+    }
+
+    let image_path = entry["path"].as_str().ok_or("queue entry carries no path")?;
+    let raw = fs::read(image_path).map_err(|e| format!("{image_path}: {e}"))?;
+    if raw.len() < 8 || &raw[..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("staged file is not a PNG".into());
+    }
+
+    // Stand in for the vision provider: the caption it would have written.
+    let caption = fixture.cfg.staging_dir().join("caption.md");
+    fs::write(
+        &caption,
+        "---\ntype: image\nsource: screenshot\nurl: \n\
+         saved_at: 2026-01-01T00:00:00Z\ntitle: A red square\n\
+         summary: One red pixel.\ntags: [image]\n---\n\n# A red square\n\nOne red pixel.\n",
+    )
+    .map_err(|e| e.to_string())?;
+    let list = fixture.cfg.staging_dir().join("img-list.txt");
+    fs::write(&list, caption.display().to_string()).map_err(|e| e.to_string())?;
+
+    let mut cfg = fixture.cfg.clone();
+    cfg.provider.image.command = Some("cmd".into());
+    cfg.provider.image.args = Some(vec![
+        "/c".into(),
+        "type".into(),
+        list.to_string_lossy().into_owned(),
+    ]);
+    cfg.provider.image.prompt_hint =
+        "Use mcp__MiniMax__understand_image to caption the image at <path>.".into();
+
+    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock)).map_err(|e| e.to_string())?;
+    let outcome = drainer.run_once().map_err(|e| e.to_string())?;
+
+    if let Some(reason) = &outcome.reason {
+        return Err(format!("batch deadlettered: {reason}"));
+    }
+    if outcome.written.len() != 1 {
+        return Err(format!("wrote {}, expected 1", outcome.written.len()));
+    }
+
+    let filed = &outcome.written[0];
+    let text = fs::read_to_string(filed).map_err(|e| e.to_string())?;
+    let meta = frontmatter::parse(&text).ok_or("filed note has no frontmatter")?;
+    if meta.get("type") != Some("image") {
+        return Err(format!("filed type = {:?}", meta.get("type")));
+    }
+    if meta.get("source") != Some("screenshot") {
+        return Err(format!("filed source = {:?}", meta.get("source")));
+    }
+    if fs::read_dir(cfg.vault_inbox()).map_err(|e| e.to_string())?.count() != 1 {
+        return Err("vault Inbox does not hold exactly one note".into());
+    }
+
+    // The id must round-trip through the filename, or the HAG-4 indexer would
+    // treat a re-index as a new item.
+    let name = filed
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("filed note has no filename")?;
+    let (parsed_id, parsed_source) =
+        frontmatter::parse_note_filename(name).ok_or("filename did not parse")?;
+    if parsed_id != id {
+        return Err(format!("filename id {parsed_id} != queue id {id}"));
+    }
+    if parsed_source != "screenshot" {
+        return Err(format!("filename source = {parsed_source}"));
+    }
+
+    Ok(())
+}

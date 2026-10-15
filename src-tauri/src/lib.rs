@@ -20,6 +20,7 @@ pub mod drainer;
 pub mod frontmatter;
 pub mod prompts;
 pub mod queue;
+pub mod screenshot;
 pub mod selfcheck;
 pub mod server;
 pub mod vault;
@@ -30,8 +31,10 @@ use config::Config;
 use drainer::Drainer;
 use vault::Detected;
 
-/// Global capture hotkey.
+/// Global capture hotkey for URLs.
 const CAPTURE_HOTKEY: &str = "Ctrl+Shift+C";
+/// Global capture hotkey for clipboard images.
+const SCREENSHOT_HOTKEY: &str = "Ctrl+Shift+X";
 /// Tray icon id, used to look the tray up for notifications.
 const TRAY_ID: &str = "clipper";
 
@@ -97,6 +100,21 @@ fn on_capture(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     }
 }
 
+/// The screenshot hotkey handler: clipboard image -> staging PNG -> queue.
+fn on_capture_image(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
+    let Some((width, height, bytes)) = screenshot::clipboard_image() else {
+        notify_user(app, "Clipboard has no image");
+        return;
+    };
+
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    match screenshot::save_and_queue(cfg, width, height, bytes, "screenshot") {
+        Ok(Some(id)) => println!("screenshot captured: {width}x{height} (queued {id})"),
+        Ok(None) => notify_user(app, "Clipboard image was not usable"),
+        Err(e) => eprintln!("screenshot failed: {e}"),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -147,13 +165,22 @@ pub fn run() {
                 );
             }
 
-            // ---- global hotkey: Ctrl+Shift+C ----
+            // ---- global hotkeys: Ctrl+Shift+C (URL), Ctrl+Shift+X (image) ----
             let hotkey_cfg = cfg.clone();
             let hotkey_lock = Arc::clone(&lock);
             app.global_shortcut()
                 .on_shortcut(CAPTURE_HOTKEY, move |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         on_capture(app, &hotkey_cfg, &hotkey_lock);
+                    }
+                })?;
+
+            let image_cfg = cfg.clone();
+            let image_lock = Arc::clone(&lock);
+            app.global_shortcut()
+                .on_shortcut(SCREENSHOT_HOTKEY, move |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        on_capture_image(app, &image_cfg, &image_lock);
                     }
                 })?;
 
@@ -202,8 +229,9 @@ pub fn run() {
                 cfg.server.bind, cfg.server.port
             );
 
-            println!("Clipper: tray ready, global hotkey {CAPTURE_HOTKEY} registered");
-
+            println!(
+                "Clipper: tray ready, hotkeys {CAPTURE_HOTKEY} (url) and {SCREENSHOT_HOTKEY} (image) registered"
+            );
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -566,6 +566,7 @@ dependencies = [
  "arboard",
  "axum",
  "dirs",
+ "image",
  "notify",
  "rusqlite",
  "serde",

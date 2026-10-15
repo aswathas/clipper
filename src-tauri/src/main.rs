@@ -7,6 +7,7 @@ fn main() {
         let code = match arg.as_str() {
             "--hag3-smoke" => Some(clipper_lib::selfcheck::run_hag3()),
             "--hag4-smoke" => Some(clipper_lib::selfcheck::run_hag4()),
+            "--hag6-smoke" => Some(clipper_lib::selfcheck::run_hag6()),
             _ => None,
         };
         if let Some(code) = code {

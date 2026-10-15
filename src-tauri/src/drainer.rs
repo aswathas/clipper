@@ -30,6 +30,13 @@ pub struct BatchOutcome {
     pub reason: Option<String>,
 }
 
+/// How to spawn the extractor for one batch.
+struct ProviderSpec {
+    command: String,
+    args: Vec<String>,
+    pipe_prompt: bool,
+}
+
 /// A provider invocation's result.
 #[derive(Debug)]
 struct ProviderRun {
@@ -105,12 +112,16 @@ impl Drainer {
         let staging = self.cfg.staging_dir();
         fs::create_dir_all(&staging)?;
         let prompt_path = staging.join(format!("batch_{}.md", uuid::Uuid::new_v4()));
-        let targets: Vec<String> = entries.iter().map(QueueEntry::target).collect();
-        let prompt_text = build_prompt(&self.header, &targets);
+        let prompt_text = build_prompt(
+            &self.header,
+            &entries,
+            &self.cfg.provider.image.prompt_hint,
+        );
         fs::write(&prompt_path, &prompt_text)?;
 
-        // ---- run the provider ----
-        let run = match self.run_provider(&prompt_path, &prompt_text) {
+        // ---- run the provider (image batches may use their own command) ----
+        let spec = self.provider_for(&entries);
+        let run = match self.run_provider(&spec, &prompt_path, &prompt_text) {
             Ok(run) => run,
             Err(e) => {
                 self.deadletter(&entries, &format!("spawn-failed: {e}"))?;
@@ -270,13 +281,39 @@ impl Drainer {
         Ok(())
     }
 
-    /// Spawn the configured provider, pipe the prompt in, and wait with a timeout.
-    fn run_provider(&self, prompt_file: &Path, prompt_text: &str) -> io::Result<ProviderRun> {
-        let provider = &self.cfg.provider.claude;
-        let pipe_prompt = provider.stdin == "prompt-file";
+    /// Which provider to spawn for this batch. An all-image batch uses
+    /// `[provider.image]` when it names a command; everything else uses Claude.
+    fn provider_for(&self, entries: &[QueueEntry]) -> ProviderSpec {
+        let all_images = !entries.is_empty() && entries.iter().all(|entry| entry.kind == "image");
 
-        let mut command = Command::new(&provider.command);
-        command.args(&provider.args);
+        if all_images {
+            if let Some(command) = self.cfg.provider.image.command.as_deref() {
+                return ProviderSpec {
+                    command: command.to_string(),
+                    args: self.cfg.provider.image.args.clone().unwrap_or_default(),
+                    pipe_prompt: true,
+                };
+            }
+        }
+
+        ProviderSpec {
+            command: self.cfg.provider.claude.command.clone(),
+            args: self.cfg.provider.claude.args.clone(),
+            pipe_prompt: self.cfg.provider.claude.stdin == "prompt-file",
+        }
+    }
+
+    /// Spawn the configured provider, pipe the prompt in, and wait with a timeout.
+    fn run_provider(
+        &self,
+        spec: &ProviderSpec,
+        prompt_file: &Path,
+        prompt_text: &str,
+    ) -> io::Result<ProviderRun> {
+        let pipe_prompt = spec.pipe_prompt;
+
+        let mut command = Command::new(&spec.command);
+        command.args(&spec.args);
         if !pipe_prompt {
             command.arg(prompt_file);
         }
@@ -335,10 +372,33 @@ fn drain(pipe: Option<impl Read>) -> String {
     String::from_utf8_lossy(&buffer).into_owned()
 }
 
-/// `extract.md` header + the batch's targets as a JSON list.
-fn build_prompt(header: &str, targets: &[String]) -> String {
-    let list = serde_json::to_string_pretty(targets).unwrap_or_else(|_| "[]".to_string());
-    format!("{header}\n\nURLs (JSON list, in order):\n\n{list}\n")
+/// `extract.md` header + the batch, as a JSON list of things to fetch or caption.
+fn build_prompt(header: &str, entries: &[QueueEntry], image_hint: &str) -> String {
+    let all_images = !entries.is_empty() && entries.iter().all(|entry| entry.kind == "image");
+    let all_urls = !entries.is_empty() && entries.iter().all(|entry| entry.kind != "image");
+
+    let targets: Vec<String> = entries.iter().map(QueueEntry::target).collect();
+    let list = serde_json::to_string_pretty(&targets).unwrap_or_else(|_| "[]".to_string());
+
+    if all_images {
+        format!("{header}\n\n{image_hint}\n\nImage paths (JSON list, in order):\n\n{list}\n")
+    } else if all_urls {
+        format!("{header}\n\nURLs (JSON list, in order):\n\n{list}\n")
+    } else {
+        // Mixed batch: label each item so the extractor knows which is which.
+        let items: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|entry| {
+                if entry.kind == "image" {
+                    serde_json::json!({ "type": "image", "path": entry.target() })
+                } else {
+                    serde_json::json!({ "type": "url", "url": entry.target() })
+                }
+            })
+            .collect();
+        let items = serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string());
+        format!("{header}\n\n{image_hint}\n\nItems (JSON list, in order):\n\n{items}\n")
+    }
 }
 
 /// `<stamp>_<source>_<id>.md`, with `-<n>` appended on collision.

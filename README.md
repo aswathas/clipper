@@ -18,6 +18,10 @@ See [`SPEC.md`](./SPEC.md) for the full design.
   deduped (SHA-256 of the URL, first 16 hex chars, checked against `archive.jsonl`) and
   appended to `~/.clipper/queue/inbox.jsonl`. An already-saved URL reports
   `Already saved: <host>` and is skipped; non-URL text is ignored.
+- **Screenshot hotkey `Ctrl+Shift+X`** — reads an image off the clipboard, writes it to
+  `~/.clipper/staging/img_<unix_ts>.png` and queues it as `type: image`. Image batches go
+  to the vision path: `[provider.image].prompt_hint` is prepended to the same `extract.md`
+  schema, and `[provider.image].command` can override the provider for those batches.
 - **Queue drainer** — a background task that polls every 5 s *and* wakes on file change
   (200 ms debounce). It takes up to `batch_size` items, rotates them into
   `inbox.processing`, builds a batch prompt from `~/.clipper/prompts/extract.md`, runs the
@@ -152,6 +156,7 @@ non-zero — it never silently picks another port.
 ```powershell
 .\src-tauri\target\debug\clipper.exe --hag3-smoke
 .\src-tauri\target\debug\clipper.exe --hag4-smoke
+.\src-tauri\target\debug\clipper.exe --hag6-smoke
 ```
 
 `--hag3-smoke` runs four assertions against an isolated temp config with a faked provider
@@ -163,6 +168,11 @@ the batch.
 notes *after* the watcher is live, and drives every route over real HTTP — listing, FTS
 search, `today`, status (valid and invalid), tags, clips, stats, `healthz`, and the
 dashboard. Exit code `0` means every check passed.
+
+`--hag6-smoke` writes a 1x1 red image through the real save-and-queue path, checks the
+staged file is genuinely a PNG, drains it with a faked image provider, and asserts the
+filed note carries `type: image` / `source: screenshot` and that its id round-trips
+through the filename.
 
 > The self-check is a flag on the real binary rather than a `tests/` target because a Rust
 > test-harness binary linking the Tauri stack cannot be loaded on this windows-gnu
@@ -182,6 +192,7 @@ src-tauri/src/
   queue.rs              JSONL append/rotate, SHA-256 dedupe index
   capture.rs            clipboard text -> deduped queue append
   drainer.rs            batching, prompt build, provider spawn, vault write
+  screenshot.rs         clipboard image -> staging PNG -> queue entry
   frontmatter.rs        note frontmatter parse + filename id recovery
   db.rs                 SQLite schema, FTS5, upsert and queries
   vaultwatch.rs         watches the vault, keeps the index in step
