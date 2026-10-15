@@ -538,11 +538,156 @@
           </div>
         </section>
 
-        <section x-show="currentPage === 'ask'">
+        <!-- Ask Page (DESIGN.md Section 6) -->
+        <section x-show="currentPage === 'ask'" x-data="pageAsk()">
           <div class="top-bar">
             <div class="top-bar-titles">
               <h2 class="top-bar-title">Ask your brain</h2>
               <p class="top-bar-desc">A calm conversation with your archive.</p>
+            </div>
+            <div class="top-bar-actions">
+              <button type="button" class="btn btn-secondary btn-sm" @click="newChat()">+ New chat</button>
+            </div>
+          </div>
+
+          <div class="ask-layout">
+            <!-- Left History Rail -->
+            <aside class="ask-history-rail">
+              <!-- Today -->
+              <div class="ask-history-group">
+                <div class="ask-history-heading">Today</div>
+                <template x-for="c in history.today" :key="c.id">
+                  <div class="ask-history-item"
+                       :class="{ 'active': activeConvId === c.id }"
+                       @click="loadConversation(c)">
+                    <span style="opacity: 0.6;">💬</span>
+                    <span x-text="c.title"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Yesterday -->
+              <div class="ask-history-group">
+                <div class="ask-history-heading">Yesterday</div>
+                <template x-for="c in history.yesterday" :key="c.id">
+                  <div class="ask-history-item"
+                       :class="{ 'active': activeConvId === c.id }"
+                       @click="loadConversation(c)">
+                    <span style="opacity: 0.6;">💬</span>
+                    <span x-text="c.title"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Older -->
+              <div class="ask-history-group">
+                <div class="ask-history-heading">Older</div>
+                <template x-for="c in history.older" :key="c.id">
+                  <div class="ask-history-item"
+                       :class="{ 'active': activeConvId === c.id }"
+                       @click="loadConversation(c)">
+                    <span style="opacity: 0.6;">💬</span>
+                    <span x-text="c.title"></span>
+                  </div>
+                </template>
+              </div>
+            </aside>
+
+            <!-- Main Chat Pane -->
+            <div class="ask-chat-pane">
+              <!-- Empty state if no messages -->
+              <div x-show="messages.length === 0 && !streaming" style="text-align: center; padding: var(--sp-8) var(--sp-4); margin: auto 0;">
+                <h3 style="font-family: var(--font-display); font-size: var(--fs-xl); color: var(--ink); margin-bottom: var(--sp-2);">Ask your brain</h3>
+                <p style="font-size: var(--fs-sm); color: var(--mute); max-width: 480px; margin: 0 auto var(--sp-6) auto; line-height: 1.5;">
+                  Ask me anything about what you've saved. I'll find it, summarize it, or connect it.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: var(--sp-2); max-width: 380px; margin: 0 auto;">
+                  <button type="button" class="btn btn-ghost btn-sm" style="text-align: left; border: 1px solid var(--hairline);" @click="askSuggestion('What\'s on my plate today?')">
+                    → What's on my plate today?
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="text-align: left; border: 1px solid var(--hairline);" @click="askSuggestion('What did I save about Rust async?')">
+                    → What did I save about Rust async?
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="text-align: left; border: 1px solid var(--hairline);" @click="askSuggestion('Summarize my last 5 reads')">
+                    → Summarize my last 5 reads
+                  </button>
+                </div>
+              </div>
+
+              <!-- Chat Message Thread -->
+              <div x-show="messages.length > 0 || streaming" class="ask-thread">
+                <template x-for="(msg, idx) in messages" :key="idx">
+                  <div>
+                    <!-- User Message Bubble -->
+                    <template x-if="msg.role === 'user'">
+                      <div class="ask-user-msg" x-text="msg.content"></div>
+                    </template>
+
+                    <!-- Assistant Message Essay -->
+                    <template x-if="msg.role === 'assistant'">
+                      <div class="ask-assistant-msg">
+                        <div class="ask-assistant-essay" x-html="renderMarkdown(msg.content)"></div>
+
+                        <!-- Collapsible Sources -->
+                        <template x-if="msg.sources && msg.sources.length > 0">
+                          <div class="ask-sources-box">
+                            <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;"
+                                 @click="msg.sourcesOpen = !msg.sourcesOpen">
+                              <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute);" x-text="'Sources (' + msg.sources.length + ')'"></span>
+                              <span style="font-size: var(--fs-xs); color: var(--mute);" x-text="msg.sourcesOpen ? '▾' : '▸'"></span>
+                            </div>
+
+                            <div x-show="msg.sourcesOpen" style="display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2);">
+                              <template x-for="src in msg.sources" :key="src.id">
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--sp-2); background-color: var(--surface-2); border-radius: var(--r-sm); cursor: pointer;"
+                                     @click="openDetail(src)">
+                                  <div style="display: flex; align-items: center; gap: var(--sp-2); min-width: 0;">
+                                    <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2);" x-text="src.type"></span>
+                                    <span style="font-size: var(--fs-sm); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="src.title"></span>
+                                  </div>
+                                  <span style="font-size: var(--fs-xs); color: var(--mute-2); flex-shrink: 0;" x-text="(src.reading_time_min || 5) + 'm'"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <!-- In-Flight Streaming Message -->
+                <div x-show="streaming" class="ask-assistant-msg">
+                  <div class="ask-assistant-essay">
+                    <span x-html="renderMarkdown(currentStreamText)"></span>
+                    <span class="streaming-cursor"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sticky Composer -->
+              <div class="ask-composer-container">
+                <textarea
+                  class="ask-textarea"
+                  x-model="inputPrompt"
+                  placeholder="Ask anything about your archive... (Enter to send, Shift+Enter for newline)"
+                  rows="1"
+                  @keydown.enter.exact.prevent="sendQuestion()"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  x-show="!streaming"
+                  :disabled="!inputPrompt.trim()"
+                  @click="sendQuestion()"
+                >Ask</button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  x-show="streaming"
+                  @click="stopStreaming()"
+                >Stop</button>
+              </div>
             </div>
           </div>
         </section>

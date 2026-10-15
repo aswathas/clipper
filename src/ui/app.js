@@ -774,6 +774,214 @@ function pageInbox() {
   };
 }
 
+function pageAsk() {
+  return {
+    title: "Ask your brain",
+    activeConvId: "c1",
+    history: {
+      today: [
+        { id: "c1", title: "Rust async & Tokio scheduling", snippet: "What did I save about Rust async?" }
+      ],
+      yesterday: [
+        { id: "c2", title: "Transformer attention heads", snippet: "Summarize Andrej's video on LLMs" }
+      ],
+      older: [
+        { id: "c3", title: "TDD & architecture feedback", snippet: "Why is TDD dead according to Fowler?" }
+      ]
+    },
+    messages: [
+      {
+        role: "user",
+        content: "what did I save about Rust async?"
+      },
+      {
+        role: "assistant",
+        content: "Based on your saved items, your Rust async interest centers on non-blocking task runtimes and compiler borrow lifetime contracts:\n\n• **Rust ownership patterns in 2026** (8 min read)\n• **Tokio: An asynchronous runtime for Rust** (15 min read)\n• **E0597: borrowed value does not live long enough in async block** (3 min read)\n\nThe underlying theme is managing reference lifetimes across suspension points without unnecessary heap indirection.",
+        sources: [
+          { id: "clip-01", title: "Rust ownership patterns in 2026", type: "article", reading_time_min: 8 },
+          { id: "clip-04", title: "Tokio: An asynchronous runtime for Rust", type: "repo", reading_time_min: 15 }
+        ],
+        sourcesOpen: true
+      }
+    ],
+    inputPrompt: "",
+    streaming: false,
+    currentStreamText: "",
+    abortController: null,
+
+    newChat() {
+      if (this.streaming) this.stopStreaming();
+      this.activeConvId = "new-" + Date.now().toString(36);
+      this.messages = [];
+      this.inputPrompt = "";
+    },
+
+    loadConversation(conv) {
+      if (this.streaming) this.stopStreaming();
+      this.activeConvId = conv.id;
+      if (conv.id === "c1") {
+        this.messages = [
+          {
+            role: "user",
+            content: "what did I save about Rust async?"
+          },
+          {
+            role: "assistant",
+            content: "Based on your saved items, your Rust async interest centers on non-blocking task runtimes and compiler borrow lifetime contracts:\n\n• **Rust ownership patterns in 2026** (8 min read)\n• **Tokio: An asynchronous runtime for Rust** (15 min read)\n• **E0597: borrowed value does not live long enough in async block** (3 min read)\n\nThe underlying theme is managing reference lifetimes across suspension points without unnecessary heap indirection.",
+            sources: [
+              { id: "clip-01", title: "Rust ownership patterns in 2026", type: "article", reading_time_min: 8 },
+              { id: "clip-04", title: "Tokio: An asynchronous runtime for Rust", type: "repo", reading_time_min: 15 }
+            ],
+            sourcesOpen: true
+          }
+        ];
+      } else if (conv.id === "c2") {
+        this.messages = [
+          { role: "user", content: "Summarize Andrej's video on LLMs" },
+          { role: "assistant", content: "Andrej Karpathy's video walks step-by-step through implementing an autoregressive transformer from scratch. Starting from token byte-pair encoding, setting up multi-head self-attention, and training with cross-entropy loss.", sources: [{ id: "clip-02", title: "Build a tiny LLM from scratch", type: "video", reading_time_min: 47 }], sourcesOpen: true }
+        ];
+      } else {
+        this.messages = [
+          { role: "user", content: "Why is TDD dead according to Fowler?" },
+          { role: "assistant", content: "The article argues that dogmatic test-first practices often lead to brittle mocks. Architecture feedback loops and integration boundaries matter more than 100% unit-level assertion coverage.", sources: [{ id: "clip-03", title: "Why TDD is dead (again)", type: "article", reading_time_min: 6 }], sourcesOpen: true }
+        ];
+      }
+    },
+
+    askSuggestion(text) {
+      this.inputPrompt = text;
+      this.sendQuestion();
+    },
+
+    async sendQuestion() {
+      const q = this.inputPrompt.trim();
+      if (!q || this.streaming) return;
+
+      this.messages.push({ role: "user", content: q });
+      this.inputPrompt = "";
+      this.streaming = true;
+      this.currentStreamText = "";
+      this.abortController = new AbortController();
+
+      const itemScope = MOCK_DATA.items[0] ? MOCK_DATA.items[0].id : "clip-01";
+      const sseUrl = `/api/items/${itemScope}/chat`;
+
+      try {
+        let streamReader = null;
+        const isMock = Boolean(
+          window.__MOCK_API__ ||
+          (typeof location !== "undefined" && location.search.includes("mock")) ||
+          (typeof navigator !== "undefined" && !navigator.onLine)
+        );
+
+        if (!isMock) {
+          try {
+            const response = await fetch(sseUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ question: q }),
+              signal: this.abortController.signal
+            });
+            if (response.ok && response.body) {
+              streamReader = response.body.getReader();
+            }
+          } catch (netErr) {
+            console.warn("Live chat endpoint unavailable, falling back to mock SSE:", netErr);
+          }
+        }
+
+        // Fallback simulated SSE ReadableStream if live backend stream not obtained
+        if (!streamReader) {
+          const mockAnswer = `Analyzing your archive for "${q}"...\n\nYour library holds several tightly related references. Key takeaways:\n\n1. **Core Concept**: Connected references form an active mental model rather than static files.\n2. **Synthesis**: The relevant notes indicate high alignment with your active focus on systems programming and architecture.\n3. **Recommendation**: Review the matching clips linked below to consolidate key points.`;
+          const words = mockAnswer.split(" ");
+          
+          const customStream = new ReadableStream({
+            async start(controller) {
+              for (const word of words) {
+                const sseChunk = `event: chunk\ndata: ${JSON.stringify({ text: word + " " })}\n\n`;
+                controller.enqueue(new TextEncoder().encode(sseChunk));
+                await new Promise(r => setTimeout(r, 40));
+              }
+              controller.enqueue(new TextEncoder().encode(`event: done\ndata: {"exit_code": 0}\n\n`));
+              controller.close();
+            }
+          });
+          streamReader = customStream.getReader();
+        }
+
+        // Process SSE stream with getReader() per DESIGN.md Section 6
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await streamReader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data:")) {
+              const dataStr = line.slice(5).trim();
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.text) {
+                  this.currentStreamText += parsed.text;
+                }
+              } catch (e) {
+                if (dataStr) this.currentStreamText += dataStr + " ";
+              }
+            }
+          }
+        }
+
+        // Finalize assistant turn
+        this.messages.push({
+          role: "assistant",
+          content: this.currentStreamText,
+          sources: MOCK_DATA.items.slice(0, 3),
+          sourcesOpen: true
+        });
+
+      } catch (err) {
+        if (err.name === "AbortError") {
+          if (this.currentStreamText) {
+            this.messages.push({
+              role: "assistant",
+              content: this.currentStreamText + " *(cancelled)*",
+              sources: [],
+              sourcesOpen: false
+            });
+          }
+        } else {
+          toast("Chat error: " + err.message, "danger");
+        }
+      } finally {
+        this.streaming = false;
+        this.currentStreamText = "";
+        this.abortController = null;
+      }
+    },
+
+    stopStreaming() {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+    },
+
+    renderMarkdown(text) {
+      if (!text) return "";
+      try {
+        const raw = typeof marked !== "undefined" ? marked.parse(text) : text;
+        return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+      } catch (e) {
+        return text;
+      }
+    }
+  };
+}
+
 /* ============================================================================
    Application Shell Root Component
    ============================================================================ */

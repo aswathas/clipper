@@ -1408,6 +1408,162 @@ button {
   line-height: 1.5;
 }
 
+/* --------------------------------------------------------------------------
+   6. Ask Page Styles (DESIGN.md Section 6)
+   -------------------------------------------------------------------------- */
+
+.ask-layout {
+  display: flex;
+  min-height: calc(100vh - 160px);
+  gap: var(--sp-6);
+  position: relative;
+}
+
+.ask-history-rail {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--hairline);
+  padding-right: var(--sp-4);
+}
+
+.ask-history-group {
+  margin-bottom: var(--sp-4);
+}
+
+.ask-history-heading {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mute-2);
+  margin-bottom: var(--sp-2);
+}
+
+.ask-history-item {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 2px;
+}
+
+.ask-history-item:hover {
+  background-color: var(--surface-2);
+  color: var(--ink);
+}
+
+.ask-history-item.active {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ask-chat-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  position: relative;
+}
+
+.ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding-bottom: 140px;
+}
+
+.ask-user-msg {
+  align-self: flex-end;
+  background-color: var(--surface-2);
+  color: var(--ink);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-base);
+  max-width: 80%;
+  line-height: 1.5;
+}
+
+.ask-assistant-msg {
+  align-self: stretch;
+  color: var(--ink);
+  font-size: var(--fs-base);
+  line-height: 1.65;
+}
+
+.ask-assistant-essay {
+  font-family: var(--font-body);
+}
+
+.ask-assistant-essay p {
+  margin-bottom: var(--sp-3);
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: var(--accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.ask-sources-box {
+  margin-top: var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  background-color: var(--surface);
+}
+
+.ask-composer-container {
+  position: sticky;
+  bottom: var(--sp-4);
+  background-color: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  z-index: 40;
+}
+
+.ask-textarea {
+  flex: 1;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  resize: none;
+  background: transparent;
+  padding: var(--sp-2);
+  font-size: var(--fs-base);
+  color: var(--ink);
+  font-family: var(--font-body);
+  max-height: 160px;
+  min-height: 40px;
+  line-height: 1.4;
+  margin: 0 !important;
+}
+
 /* Toasts */
 .toast-container {
   position: fixed;
