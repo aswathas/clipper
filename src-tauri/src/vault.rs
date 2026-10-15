@@ -29,78 +29,84 @@ fn push_unique(out: &mut Vec<PathBuf>, candidate: PathBuf) {
     }
 }
 
-/// Scan the well-known locations, plus every first-level folder of the home
-/// directory, for an Obsidian vault.
-///
-/// Exactly one -> use it. Several -> use the first (sorted) and log them all.
-/// None -> create `~/Documents/ClipperVault` (with `.obsidian`) and use that.
-pub fn detect() -> Detected {
-    let home = home_dir();
-    let bases = [
-        home.join("Documents"),
-        home.join("ObsidianVaults"),
-        home.join("Notes"),
-        home.join("repos"),
-        home.join("OneDrive").join("Documents"),
-    ];
+/// `CLIPPER_HOME`, when set, is the only place Clipper looks for or creates a
+/// vault. That keeps `scripts/smoke.ps1` (and portable installs) away from any
+/// real vault on the machine.
+fn scoped_root() -> Option<PathBuf> {
+    std::env::var_os("CLIPPER_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
 
-    let mut candidates: Vec<PathBuf> = Vec::new();
-
-    for base in &bases {
-        if is_vault(base) {
-            push_unique(&mut candidates, base.clone());
-        }
-        if let Ok(entries) = fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() && is_vault(&path) {
-                    push_unique(&mut candidates, path);
-                }
-            }
-        }
+/// `dir` itself, plus each of its immediate subdirectories.
+fn scan(dir: &Path, out: &mut Vec<PathBuf>) {
+    if is_vault(dir) {
+        push_unique(out, dir.to_path_buf());
     }
-
-    // Any first-level folder of ~ that is itself a vault.
-    if let Ok(entries) = fs::read_dir(&home) {
+    if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() && is_vault(&path) {
-                push_unique(&mut candidates, path);
+                push_unique(out, path);
             }
         }
     }
+}
+
+/// Scan for an Obsidian vault.
+///
+/// Exactly one -> use it. Several -> use the first (sorted) and log them all.
+/// None -> create `<fallback root>/ClipperVault` (with `.obsidian`) and use it.
+pub fn detect() -> Detected {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    let fallback_root = match scoped_root() {
+        Some(root) => {
+            scan(&root, &mut candidates);
+            root
+        }
+        None => {
+            let home = home_dir();
+            for base in [
+                home.join("Documents"),
+                home.join("ObsidianVaults"),
+                home.join("Notes"),
+                home.join("repos"),
+                home.join("OneDrive").join("Documents"),
+                home.clone(),
+            ] {
+                scan(&base, &mut candidates);
+            }
+            home.join("Documents")
+        }
+    };
 
     candidates.sort();
 
-    match candidates.len() {
-        0 => {
-            let fallback = home.join("Documents").join("ClipperVault");
-            let _ = fs::create_dir_all(fallback.join(".obsidian"));
-            Detected {
-                path: fallback,
-                candidates: Vec::new(),
-                created: true,
-            }
+    if candidates.is_empty() {
+        let fallback = fallback_root.join("ClipperVault");
+        let _ = fs::create_dir_all(fallback.join(".obsidian"));
+        return Detected {
+            path: fallback,
+            candidates: Vec::new(),
+            created: true,
+        };
+    }
+
+    if candidates.len() > 1 {
+        for candidate in &candidates {
+            println!("vault candidate: {}", candidate.display());
         }
-        1 => Detected {
-            path: candidates[0].clone(),
-            candidates,
-            created: false,
-        },
-        _ => {
-            for candidate in &candidates {
-                println!("vault candidate: {}", candidate.display());
-            }
-            println!(
-                "vault: {} candidates found, using {}",
-                candidates.len(),
-                candidates[0].display()
-            );
-            Detected {
-                path: candidates[0].clone(),
-                candidates,
-                created: false,
-            }
-        }
+        println!(
+            "vault: {} candidates found, using {}",
+            candidates.len(),
+            candidates[0].display()
+        );
+    }
+
+    Detected {
+        path: candidates[0].clone(),
+        candidates,
+        created: false,
     }
 }

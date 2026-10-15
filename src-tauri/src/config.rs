@@ -15,8 +15,14 @@ pub fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Root of Clipper's own state: `~/.clipper`.
+/// Root of Clipper's own state: `~/.clipper`, or `$CLIPPER_HOME` when set.
+///
+/// `CLIPPER_HOME` is what makes the app portable and what lets `scripts/smoke.ps1`
+/// run a whole session without touching the user's real state.
 pub fn state_dir() -> PathBuf {
+    if let Some(custom) = std::env::var_os("CLIPPER_HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(custom);
+    }
     home_dir().join(".clipper")
 }
 
@@ -26,8 +32,27 @@ pub fn config_path() -> PathBuf {
 }
 
 /// Expand a leading `~` / `~/` into the home directory.
+///
+/// `~/.clipper` is special-cased to [`state_dir`]: that path *is* Clipper's
+/// state directory, so it has to follow `CLIPPER_HOME` rather than the literal
+/// home. Without this, the default `queue.dir` / `staging_dir` / `prompts`
+/// paths would escape an isolated `CLIPPER_HOME` and touch the user's real
+/// state.
 pub fn expand_tilde(raw: &str) -> PathBuf {
     let raw = raw.trim();
+
+    for prefix in ["~/.clipper", "~\\.clipper"] {
+        if raw == prefix {
+            return state_dir();
+        }
+        for separator in ['/', '\\'] {
+            let with_separator = format!("{prefix}{separator}");
+            if let Some(rest) = raw.strip_prefix(&with_separator) {
+                return state_dir().join(rest);
+            }
+        }
+    }
+
     if raw == "~" {
         return home_dir();
     }

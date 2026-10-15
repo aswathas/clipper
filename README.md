@@ -1,221 +1,238 @@
 # Clipper
 
-A clipboard-capture desktop app built with [Tauri 2](https://tauri.app) (Rust backend,
-vanilla HTML + JS frontend — no framework, no bundler).
+Smart clipboard / watch-later for Windows. A hotkey captures anything, Claude Code turns
+it into structured notes in your Obsidian vault, and a local dashboard shows it all.
 
-Capture a URL anywhere in Windows with one keystroke; Clipper queues it, hands it to
-Claude Code to summarise, and files the result as a Markdown note in your Obsidian vault.
-See [`SPEC.md`](./SPEC.md) for the full design.
+One Tauri binary. No cloud, no account, no telemetry.
 
-## What works today
+---
 
-- **Vault auto-detect** — on first run Clipper scans `~/Documents`, `~/ObsidianVaults`,
-  `~/Notes`, `~/repos`, `~/OneDrive/Documents` and every first-level folder of `~` for a
-  `.obsidian` directory. Exactly one vault → use it. Several → use the first and log them
-  all. None → create `~/Documents/ClipperVault`. The choice is persisted in
-  `~/.clipper/config.toml`, so later runs never re-scan.
-- **Global hotkey `Ctrl+Shift+C`** — anywhere in Windows, reads the clipboard. A URL is
-  deduped (SHA-256 of the URL, first 16 hex chars, checked against `archive.jsonl`) and
-  appended to `~/.clipper/queue/inbox.jsonl`. An already-saved URL reports
-  `Already saved: <host>` and is skipped; non-URL text is ignored.
-- **Screenshot hotkey `Ctrl+Shift+X`** — reads an image off the clipboard, writes it to
-  `~/.clipper/staging/img_<unix_ts>.png` and queues it as `type: image`. Image batches go
-  to the vision path: `[provider.image].prompt_hint` is prepended to the same `extract.md`
-  schema, and `[provider.image].command` can override the provider for those batches.
-- **Queue drainer** — a background task that polls every 5 s *and* wakes on file change
-  (200 ms debounce). It takes up to `batch_size` items, rotates them into
-  `inbox.processing`, builds a batch prompt from `~/.clipper/prompts/extract.md`, runs the
-  configured provider, and files each returned `.md` into
-  `<vault>/Inbox/YYYY-MM-DD_HHMM_clipboard_<id>.md`.
-- **Failure handling** — a non-zero provider exit, a timeout, or stdout that is not one
-  existing staging path per input moves the batch to `deadletter.jsonl` with a reason
-  (`bad-stdout`, `timeout`, `exit-<code>`, `bad-json`) rather than retrying forever.
-- **SQLite index** — `~/.clipper/index.db` (bundled SQLite, WAL) with an FTS5
-  external-content table kept in sync by triggers. A watcher on `<vault>/Inbox/`
-  re-indexes on create/modify with a 500 ms debounce, keyed by the id embedded in the
-  note's filename, so re-indexing is idempotent and a dashboard-set status survives it.
-- **REST API** on `127.0.0.1:7137` (see below), which also serves the dashboard from `/`
-  so its relative `/api/...` fetches stay same-origin.
-- **Phone pairing** — *Show QR* in the tray opens a window with a QR code (`GET /pair.png`)
-  encoding `http://<lan-ip>:<port>/pair?token=<session-token>`. The phone gets a no-build
-  PWA (Pico + Alpine from CDN, with a plain-DOM fallback when the CDN is unreachable) and
-  posts links to `/save`, which requires that token. The token is 32 random characters and
-  rotates every 24 h.
-- **System tray** with four menu items: *Show dashboard* (placeholder), *Settings*
-  (placeholder), *Show QR*, *Quit*.
-- **Single instance** — launching again focuses the existing window instead of starting
-  a second copy.
-- The main window is **hidden by default**; the app is driven from the tray.
+## Features
 
-## Prerequisites (Windows)
+- **Clipboard URL capture** — press `Ctrl+Shift+C` in any app. A URL is deduped
+  (SHA-256 of the URL, first 16 hex chars, checked against `archive.jsonl`) and queued.
+  An already-saved URL reports `Already saved: <host>` and is skipped.
+- **Clipboard image capture** — press `Ctrl+Shift+X` (use `Win+Shift+S` first). The
+  image is written to `~/.clipper/staging/img_<unix_ts>.png` and queued as `type: image`.
+- **Smart classification via the Claude Code CLI** — a background drainer batches queued
+  items, builds a prompt from `~/.clipper/prompts/extract.md`, and runs `claude -p`. It
+  gets back one markdown path per item carrying `type`, `title`, a one-sentence
+  `summary`, and up to five `tags`.
+- **Your Obsidian vault is the source of truth** — notes land as
+  `<vault>/Inbox/YYYY-MM-DD_HHMM_<source>_<id>.md` with YAML frontmatter. Clipper
+  auto-detects the vault; if you have none it creates `~/Documents/ClipperVault`.
+- **Local dashboard** — `http://127.0.0.1:7137/` with Today / Inbox / Library panes and
+  full-text search, backed by a SQLite + FTS5 index that mirrors the vault.
+- **Phone PWA pair over LAN** — tray → *Show QR*, scan it, and the phone gets a no-build
+  web app that posts links to the desktop.
+- **Local only** — no cloud, no account, no telemetry. A JSONL queue, one SQLite file,
+  and markdown in your vault.
+- **MIT licensed.**
 
-| Tool | Why | Check |
-|---|---|---|
-| **Rust** (stable) + **MinGW-w64** | Tauri compiles a native binary. This machine uses the GNU toolchain — see below. | `rustc --version`, `gcc --version` |
-| **Node.js** ≥ 18 | Runs the Tauri CLI (`@tauri-apps/cli`) | `node --version` |
-| **WebView2 runtime** | Renders the UI (pre-installed on Windows 11) | — |
+> **Scope of v0.1.0.** `SPEC.md` designs four capture modes (URL, screenshot, photo,
+> free text); this release wires **two** — URL and screenshot. Photo and free-text
+> capture are designed but not implemented yet. The tray's *Show dashboard* and
+> *Settings* items are placeholders: open the dashboard URL directly.
 
-### Toolchain note: GNU, not MSVC
+---
 
-This machine has **no Visual Studio C++ build tools**, so the app is built with the
-**`x86_64-pc-windows-gnu`** toolchain instead of the default MSVC one. Nothing here
-needs an elevated shell.
+## Install
 
-```powershell
-winget install --id Rustlang.Rustup -e                                   # Rust
-winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e                  # MinGW-w64 (gcc/ld/ar)
-rustup toolchain install stable-x86_64-pc-windows-gnu
-rustup default stable-x86_64-pc-windows-gnu
-```
+### Prerequisites
 
-`~/.cargo/config.toml` points the GNU target at the MinGW linker:
+- **Windows 10/11 with the WebView2 runtime.** Included on Windows 11; on Windows 10
+  install it from Microsoft.
+- **Rust 1.99+ with MinGW-w64 (GCC 16+) and the `x86_64-pc-windows-gnu` target.**
+  Clipper builds with the GNU toolchain, so **no Visual Studio C++ build tools are
+  needed**:
 
-```toml
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc.exe"
-ar = "ar.exe"
-```
+  ```powershell
+  winget install --id Rustlang.Rustup -e
+  winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e   # MinGW-w64: gcc, ld, ar
+  rustup toolchain install stable-x86_64-pc-windows-gnu
+  rustup default stable-x86_64-pc-windows-gnu
+  ```
 
-If you install the MSVC build tools later, `rustup default stable-msvc` and this
-override becomes inert.
+  Then point cargo at the MinGW linker — `~/.cargo/config.toml`:
 
-Known benign warning: every build prints
-`warning: .rsrc merge failure: multiple non-default manifests` — MinGW `ld` and
-`tauri-winres` both supply a manifest. The binary builds, links and runs.
+  ```toml
+  [target.x86_64-pc-windows-gnu]
+  linker = "x86_64-w64-mingw32-gcc.exe"
+  ar = "ar.exe"
+  ```
 
-## Build & run
+  > **winget id note:** `BrechtSanders.WinLibs.POSIX.UCRT` is the package that works.
+  > The `niXman.mingw-w64-gcc` id does not exist in the winget repository.
+
+- **Node.js 20+** — only to run the Tauri CLI. Not a runtime dependency of the built app.
+- **Claude Code CLI on `PATH`** (`claude --version` works). This is what performs the
+  extraction; without it the queue will deadletter.
+
+### Build
 
 ```powershell
-npm install          # fetches the Tauri CLI
-npx tauri dev        # dev build, hot reload
+git clone <repo>
+cd SmartClipboard
+npm install
+npx tauri build
 ```
 
-Equivalent with the Rust CLI (if you have it: `cargo install tauri-cli --locked`):
+Produces `target\release\clipper.exe`, plus installers in `target\release\bundle\`:
+an `.msi` and an NSIS `-setup.exe`.
 
-```powershell
-cargo tauri dev
-cargo tauri build
+### First run
+
+1. Launch `clipper.exe`. The tray icon appears; **no window opens** (by design).
+2. Clipper auto-detects your Obsidian vault, or creates `~/Documents/ClipperVault`.
+   `~/.clipper/config.toml` is written on this first run and then left alone.
+3. Open `http://127.0.0.1:7137/` for the dashboard.
+
+---
+
+## Usage
+
+### Hotkeys (system-wide — they work while any app is focused)
+
+| Hotkey | Does |
+|---|---|
+| `Ctrl+Shift+C` | queue the URL currently on the clipboard |
+| `Ctrl+Shift+X` | queue the image currently on the clipboard (`Win+Shift+S` first) |
+
+### Tray menu
+
+- **Show dashboard** — placeholder in v0.1.0; open <http://127.0.0.1:7137/> yourself
+- **Settings** — placeholder, planned
+- **Show QR** — opens the phone-pairing QR window
+- **Quit**
+
+### Phone pair
+
+Tray → *Show QR*. Scan the code with your phone; the browser opens the Clipper PWA.
+Type a URL, press **Save**. It takes exactly the same path as a desktop capture — same
+queue, same drainer, same vault. The PWA is plain HTML/JS with no build step, and keeps
+working if the CDN is unreachable (the form falls back to plain DOM).
+
+The QR encodes `http://<lan-ip>:<port>/pair?token=<session-token>`. The token is 32
+random characters and rotates every 24 hours; `POST /save` rejects anything without it.
+
+### Vault layout
+
+```
+<vault>/
+└── Inbox/
+    └── 2026-10-15_1225_clipboard_<uuid>.md    # one structured note per capture
 ```
 
-A production build, without bundling installers:
+Each note opens with YAML frontmatter:
 
-```powershell
-npx tauri build --no-bundle
+```yaml
+---
+type: article        # article | video | repo | book | product | note | other | image
+source: example.com
+url: https://example.com/post
+saved_at: 2026-10-15T12:25:00Z
+title: How sockets work
+summary: One sentence, at most 25 words.
+tags: [networking, tcp]
+---
 ```
 
-The binary lands in `src-tauri/target/release/clipper.exe`. Bundled installers
-(`.msi` / NSIS `.exe`) come from a plain `npx tauri build` and need WiX/NSIS
-downloaded on first run.
+Editing a note is safe: the index is rebuilt from the vault, keyed by the id in the
+filename, and re-indexing never overwrites a status you set in the dashboard.
 
-### Trying it
+---
 
-1. Run `npx tauri dev` (or launch the built `clipper.exe`).
-2. The window stays hidden — look for the **Clipper** tray icon.
-3. Copy any link (e.g. from a browser address bar).
-4. Press **`Ctrl+Shift+C`**. The terminal prints `clip captured: <url> (queued <id>)`,
-   then the drainer prints `drainer: picked=1 written=1 ...`.
-5. The note appears in `<vault>/Inbox/`. Right-click the tray icon for the menu.
+## Config
 
-## Configuration
-
-`~/.clipper/config.toml` is written on first run and then left alone. Every path may use
-a leading `~`.
+`~/.clipper/config.toml` is written on first run and left alone afterwards. Every path
+accepts a leading `~`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `vault.path` | auto-detected | Obsidian vault |
+| `vault.path` | auto-detected | your Obsidian vault |
 | `vault.inbox_subdir` | `Inbox` | subfolder notes are filed into |
 | `provider.claude.command` / `.args` | `claude` / `["-p"]` | the extractor to spawn |
 | `provider.claude.stdin` | `prompt-file` | `prompt-file` pipes the prompt into the child's stdin |
+| `provider.image.backend` / `.prompt_hint` | `claude-via-mcp` / MiniMax hint | how images are described |
 | `queue.dir` | `~/.clipper/queue` | `inbox.jsonl`, `archive.jsonl`, `deadletter.jsonl` |
-| `queue.staging_dir` | `~/.clipper/staging` | batch prompts and generated notes |
+| `queue.staging_dir` | `~/.clipper/staging` | batch prompts, generated notes, screenshots |
 | `queue.batch_size` | `5` | items per provider run |
-| `queue.poll_interval_ms` | `5000` | drainer poll interval |
+| `queue.poll_interval_ms` | `5000` | drainer poll interval (it also wakes on file change) |
 | `queue.timeout_s` | `120` | per-batch provider timeout |
-| `server.bind` / `.port` | `127.0.0.1` / `7137` | reserved for the dashboard |
+| `server.bind` / `.port` | `127.0.0.1` / `7137` | dashboard + API |
 | `prompts.extract` | `~/.clipper/prompts/extract.md` | the extraction prompt |
 
-## API
+Setting **`CLIPPER_HOME`** replaces `~/.clipper` entirely — that is how
+`scripts/smoke.ps1` runs a whole session without touching your real state, and it also
+makes a portable install possible.
 
-Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard.
+---
 
-| Route | Returns |
-|---|---|
-| `GET /healthz` | `200 ok` |
-| `GET /api/items?limit=50&offset=0&type=&tag=&q=` | `{items, total}`; `q` is an FTS5 phrase match, `type`/`tag` are exact |
-| `GET /api/items/{id}` | one item, or `404` |
-| `POST /api/items/{id}/status` `{status}` | `{ok:true}`; status must be `inbox`/`reading`/`done`/`archived`/`deleted` |
-| `POST /api/items/{id}/tags` `{tags:[…]}` | `{ok:true, tags}` |
-| `POST /api/clips` `{url, type?}` | `{id, status:"queued"}`; appends to `inbox.jsonl` |
-| `GET /api/today` | `{items}`, newest 3 with status `inbox` |
-| `GET /api/stats` | `{total, by_type, by_status, stale_30d}` |
-| `GET /pair` | the phone PWA page |
-| `GET /pair.png` | QR code for the pairing URL, as `image/png` |
-| `GET /qr` | the small page shown by the tray's *Show QR* item |
-| `GET /pwa/app.js`, `GET /pwa/manifest.json` | PWA assets |
-| `POST /save` `{url}` | same as `/api/clips`; **requires** the pairing token in `?token=` or `X-Clipper-Token`, else `401` |
+## Architecture
 
-CORS: only `http://127.0.0.1:7137`, `http://localhost:7137` and the app's own webview
-origins get CORS headers; everything else is default-deny.
+One Tauri 2 binary: Rust backend, vanilla HTML/JS frontend, no framework and no bundler.
 
-If the port is already in use Clipper logs the address it could not bind and exits
-non-zero — it never silently picks another port.
+A capture appends a line to a JSONL queue. A background drainer batches those lines,
+writes a prompt file, runs the Claude Code CLI with a timeout, and files each returned
+markdown document into the Obsidian vault — which stays the source of truth. A SQLite
+index with an FTS5 virtual table mirrors the vault for search, kept in step by a file
+watcher. An axum server on `127.0.0.1:7137` serves the dashboard, the REST API, and the
+pairing endpoints; the dashboard is embedded in the binary and served from `/`, so its
+relative `/api/...` fetches stay same-origin.
 
-## Self-check
+Failures are loud and bounded: a bad provider exit, a timeout, or unparseable stdout
+moves the batch to `deadletter.jsonl` with a reason instead of retrying forever, and if
+the port is taken Clipper reports it and exits rather than silently relocating.
+
+See [`SPEC.md`](./SPEC.md) for the data model and the build slices.
+
+---
+
+## Development
+
+### Smoke test
 
 ```powershell
-.\src-tauri\target\debug\clipper.exe --hag3-smoke
-.\src-tauri\target\debug\clipper.exe --hag4-smoke
-.\src-tauri\target\debug\clipper.exe --hag6-smoke
-.\src-tauri\target\debug\clipper.exe --hag7-smoke
+pwsh -File scripts/smoke.ps1        # or: powershell -File scripts\smoke.ps1
 ```
 
-`--hag3-smoke` runs four assertions against an isolated temp config with a faked provider
-(no network, no `claude`): three URLs become three frontmatter-valid notes, an already
-archived URL is skipped, non-URL text is ignored, and garbage provider stdout deadletters
-the batch.
+Builds the release binary if needed, then runs it fully isolated under a temporary
+`CLIPPER_HOME` with a faked provider and asserts the whole pipeline: config + vault
+auto-detect, `/healthz`, the items/today API, `/pair`, `/pair.png`, `/save` returning
+`401` without a token, then queue → drainer → vault → index for three URLs. It ends with
+`SMOKE OK (19 checks)` and leaves the temp vault behind for inspection.
 
-`--hag4-smoke` starts the real server on a random port with a temp vault, writes three
-notes *after* the watcher is live, and drives every route over real HTTP — listing, FTS
-search, `today`, status (valid and invalid), tags, clips, stats, `healthz`, and the
-dashboard. Exit code `0` means every check passed.
+### Per-slice self-checks
 
-`--hag6-smoke` writes a 1x1 red image through the real save-and-queue path, checks the
-staged file is genuinely a PNG, drains it with a faked image provider, and asserts the
-filed note carries `type: image` / `source: screenshot` and that its id round-trips
-through the filename.
+The release binary also carries flag-driven self-checks, one per slice:
 
-`--hag7-smoke` serves the app on a random port and checks the pairing surface: `/pair`
-returns the input page, `/pair.png` is a real `image/png`, `/save` is `401` with no token
-or a wrong token (and nothing reaches the queue), and `200` with a valid token supplied
-either in the query string or in `X-Clipper-Token`.
-
-> The self-check is a flag on the real binary rather than a `tests/` target because a Rust
-> test-harness binary linking the Tauri stack cannot be loaded on this windows-gnu
-> toolchain (`STATUS_ENTRYPOINT_NOT_FOUND`), while `clipper.exe` itself loads fine. This
-> way the checks run against the code that actually ships.
-
-## Layout
-
+```powershell
+clipper.exe --hag3-smoke   # vault, queue, drainer, writer
+clipper.exe --hag4-smoke   # SQLite, FTS5, every REST route over real HTTP
+clipper.exe --hag6-smoke   # image capture through the drainer
+clipper.exe --hag7-smoke   # pairing: /pair, /pair.png, token-gated /save
 ```
-src/                    vanilla HTML + CSS + JS frontend (no build step)
-src/ui/                 the dashboard (embedded in the binary and served at /)
-src/ui/pwa/             the phone PWA (served at /pair and /pwa/*)
-src-tauri/src/
-  main.rs               entry point; `--hag<N>-smoke` runs a self-check
-  lib.rs                Tauri wiring: boot, tray, hotkey, drainer, indexer, server
-  config.rs             ~/.clipper/config.toml schema, paths, load/save
-  vault.rs              Obsidian vault auto-detect
-  queue.rs              JSONL append/rotate, SHA-256 dedupe index
-  capture.rs            clipboard text -> deduped queue append
-  drainer.rs            batching, prompt build, provider spawn, vault write
-  screenshot.rs         clipboard image -> staging PNG -> queue entry
-  pairing.rs            session token, LAN address, QR rendering
-  frontmatter.rs        note frontmatter parse + filename id recovery
-  db.rs                 SQLite schema, FTS5, upsert and queries
-  vaultwatch.rs         watches the vault, keeps the index in step
-  server.rs             axum REST API + dashboard
-  prompts.rs            the default extract prompt
-  selfcheck.rs          the per-slice self-checks
-  clock.rs              UTC timestamps
-```
+
+> These live behind flags rather than in `tests/` because a Rust test-harness binary
+> linking the Tauri stack cannot be loaded on the windows-gnu toolchain
+> (`STATUS_ENTRYPOINT_NOT_FOUND`), while `clipper.exe` itself loads fine. This way the
+> checks exercise the code that actually ships.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `claude: command not found` | Install the Claude Code CLI and make sure it is on `PATH`. |
+| `Clipper: cannot bind 127.0.0.1:7137 …` | Something else owns 7137. Clipper exits rather than quietly moving to another port — kill the other process, or change `[server] port`. |
+| `no .obsidian folder found` | Expected if you have no vault yet: Clipper creates `~/Documents/ClipperVault`. Move it wherever you like and update `vault.path`. |
+| `warning: .rsrc merge failure: multiple non-default manifests` during the build | Known and harmless — MinGW `ld` and `tauri-winres` both supply a manifest. Linking succeeds. |
+| A hotkey does nothing | Another app may already own `Ctrl+Shift+C` / `Ctrl+Shift+X`. Both are constants at the top of `src-tauri/src/lib.rs`. |
+| Notes never appear in the vault | Check `~/.clipper/queue/deadletter.jsonl` — a note there carries the reason (`bad-stdout`, `timeout`, `exit-<code>`). |
+
+---
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE).
