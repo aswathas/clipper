@@ -3,1372 +3,284 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clipper — Second Brain Dashboard</title>
-  <!-- Pico.css from CDN -->
+  <title>Clipper — The Library</title>
+
+  <!-- Google Fonts: Spectral (Display Serif), Inter (Body), JetBrains Mono (Code) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Spectral:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <!-- Core Reset & External Libraries -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <!-- DOMPurify from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
-  <!-- Marked.js from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <!-- Custom styles & design system -->
   <link rel="stylesheet" href="styles.css">
-  <!-- Alpine component & shell logic -->
+
+  <!-- DOMPurify & Marked for safe markdown synthesis -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+
+  <!-- App logic before Alpine mounts -->
   <script src="app.js"></script>
-  <!-- Alpine.js from CDN (deferred) -->
+  <!-- Alpine.js reactive store and components -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body>
-  <div x-data="clipperShell()" x-cloak>
-    <!-- Sticky Top Navigation Bar -->
-    <header class="top-nav">
-      <!-- Left: Brand + Page Navigation Links -->
-      <div class="nav-left">
-        <a class="brand" @click.prevent="navigate('today')" href="#/today">
-          <span class="brand-icon">📎</span>
-          <span>Clipper</span>
-        </a>
+<body x-data="clipperShell()">
 
-        <nav>
-          <ul class="nav-links">
-            <li>
-              <a 
-                href="#/today" 
-                class="nav-link" 
-                :class="{ 'active': currentPage === 'today' }"
-                @click="navigate('today')"
-              >Today</a>
-            </li>
-            <li>
-              <a 
-                href="#/inbox" 
-                class="nav-link" 
-                :class="{ 'active': currentPage === 'inbox' }"
-                @click="navigate('inbox')"
-              >Inbox</a>
-            </li>
-            <li>
-              <a 
-                href="#/library" 
-                class="nav-link" 
-                :class="{ 'active': currentPage === 'library' }"
-                @click="navigate('library')"
-              >Library</a>
-            </li>
-            <li>
-              <a 
-                href="#/ask" 
-                class="nav-link" 
-                :class="{ 'active': currentPage === 'ask' }"
-                @click="navigate('ask')"
-              >Ask</a>
-            </li>
-            <li>
-              <a 
-                href="#/skills" 
-                class="nav-link" 
-                :class="{ 'active': currentPage === 'skills' }"
-                @click="navigate('skills')"
-              >Skills</a>
-            </li>
-          </ul>
+  <!-- Mobile Top Bar (<900px) -->
+  <header class="mobile-top-bar" aria-label="Mobile Navigation Bar">
+    <div style="display: flex; align-items: baseline; gap: 0.5rem;">
+      <span class="brand-title" style="font-size: 1.25rem;">Clipper</span>
+      <span class="brand-version">v3</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <button type="button" class="theme-toggle-btn" @click="toggleTheme()" aria-label="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-root">
+    <!-- Left Rail (240px, Desktop) -->
+    <aside class="left-rail" aria-label="Library Navigation">
+      <div>
+        <div class="brand-section">
+          <h1 class="brand-title">Clipper</h1>
+          <span class="brand-version">v3</span>
+        </div>
+
+        <nav class="rail-nav" aria-label="Primary Pages">
+          <a href="#/today" class="rail-nav-link" :class="{ 'active': currentPage === 'today' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Today</span>
+          </a>
+
+          <a href="#/library" class="rail-nav-link" :class="{ 'active': currentPage === 'library' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+            </svg>
+            <span>Library</span>
+          </a>
+
+          <a href="#/inbox" class="rail-nav-link" :class="{ 'active': currentPage === 'inbox' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+              <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+            </svg>
+            <span>Inbox</span>
+            <span class="nav-badge" x-show="unreadInboxCount > 0" x-text="unreadInboxCount"></span>
+          </a>
+
+          <a href="#/ask" class="rail-nav-link" :class="{ 'active': currentPage === 'ask' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Ask</span>
+          </a>
+
+          <a href="#/skills" class="rail-nav-link" :class="{ 'active': currentPage === 'skills' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+            <span>Skills</span>
+          </a>
+
+          <a href="#/settings" class="rail-nav-link" :class="{ 'active': currentPage === 'settings' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Settings</span>
+          </a>
         </nav>
       </div>
 
-      <!-- Center: Search Input with '/' hotkey badge -->
-      <div class="nav-center">
-        <div class="search-input-wrap">
-          <input 
-            type="search" 
-            id="clipperSearchInput"
-            placeholder="Search clips (FTS5)..." 
-            x-model="searchQuery"
-            aria-label="Search clips"
-          >
-          <kbd class="search-kbd">/</kbd>
+      <div class="rail-bottom">
+        <div class="user-mood-pill" x-text="userMoodText"></div>
+        <div class="rail-actions-row">
+          <span style="font-size: var(--fs-xs); color: var(--mute-2);">Paper Theme</span>
+          <button type="button" class="theme-toggle-btn" @click="toggleTheme()" aria-label="Toggle theme">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+          </button>
         </div>
       </div>
+    </aside>
 
-      <!-- Right: Theme Toggle, Settings Icon, + Clip Button -->
-      <div class="nav-right">
-        <!-- Theme Toggle -->
-        <button 
-          type="button"
-          class="btn-icon" 
-          @click="toggleTheme()" 
-          title="Toggle Light/Dark Theme"
-          aria-label="Toggle theme"
-        >
-          🌓
-        </button>
+    <!-- Main Content Area -->
+    <div class="main-wrapper">
+      <main class="main-content">
+        <!-- Today Page (Landing) -->
+        <section x-show="currentPage === 'today'" x-data="pageToday()">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title" x-text="greeting"></h2>
+              <p class="top-bar-desc" x-text="dateFormatted"></p>
+            </div>
+            <div class="top-bar-actions">
+              <!-- Contextual action slot -->
+            </div>
+          </div>
 
-        <!-- Shortcuts Overlay Trigger -->
-        <button 
-          type="button"
-          class="btn-icon" 
-          @click="showShortcutsModal = true" 
-          title="Keyboard Shortcuts (?)"
-          aria-label="Keyboard shortcuts"
-        >
-          ⌨
-        </button>
+          <!-- Empty Today state for Step 1 -->
+          <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--sp-8) var(--sp-6); text-align: center; max-width: 540px; margin: var(--sp-8) auto;">
+            <h3 style="font-size: var(--fs-xl); margin-bottom: var(--sp-2);">Your library is quiet</h3>
+            <p style="font-size: var(--fs-base); color: var(--mute); margin-bottom: var(--sp-5);">The first save is the hardest — paste a link or document to begin.</p>
+            <div style="display: flex; gap: var(--sp-2); max-width: 420px; margin: 0 auto;">
+              <input type="text" placeholder="Paste a link to save..." style="background-color: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); flex: 1; color: var(--ink);">
+              <button type="button" class="btn btn-primary">Save Clip</button>
+            </div>
+          </div>
+        </section>
 
-        <!-- Settings Icon (Routes to #/settings) -->
-        <a 
-          href="#/settings" 
-          class="btn-icon" 
-          :class="{ 'active': currentPage === 'settings' }"
-          @click="navigate('settings')" 
-          title="Settings"
-          aria-label="Settings"
-        >
-          ⚙
-        </a>
+        <!-- Placeholders for other pages -->
+        <section x-show="currentPage === 'library'">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title">Library</h2>
+              <p class="top-bar-desc">Everything you've saved.</p>
+            </div>
+          </div>
+        </section>
 
-        <!-- + Clip Quick Capture Button -->
-        <button 
-          type="button"
-          class="btn-clip" 
-          @click="openQuickCapture()"
-        >
-          + clip
-        </button>
+        <section x-show="currentPage === 'inbox'">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title">Inbox</h2>
+              <p class="top-bar-desc">New saves, untriaged.</p>
+            </div>
+          </div>
+        </section>
+
+        <section x-show="currentPage === 'ask'">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title">Ask your brain</h2>
+              <p class="top-bar-desc">A calm conversation with your archive.</p>
+            </div>
+          </div>
+        </section>
+
+        <section x-show="currentPage === 'skills'">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title">Skills</h2>
+              <p class="top-bar-desc">Custom extraction templates, agents, and automation workflows.</p>
+            </div>
+          </div>
+        </section>
+
+        <section x-show="currentPage === 'settings'">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h2 class="top-bar-title">Settings</h2>
+              <p class="top-bar-desc">Persona directives, second brain memory, and providers.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Right Rail (320px contextual, visible on Today) -->
+    <aside class="right-rail" x-show="currentPage === 'today'" aria-label="Contextual Focus">
+      <div style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute-2); margin-bottom: var(--sp-4);">
+        Current Focus
       </div>
-    </header>
-
-    <!-- Main Dynamic Content Area (6 Pages) -->
-    <main class="main-container">
-      <!-- 1. TODAY PAGE -->
-      <section x-show="currentPage === 'today'" x-data="pageToday()">
-        <div class="page-header">
-          <div>
-            <h1>Today</h1>
-            <p>Urgent items and clips captured within the last 24 hours</p>
-          </div>
-          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
-        </div>
-
-        <!-- Filter Pills -->
-        <div class="filter-toolbar">
-          <div class="filter-pills">
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'all' }" 
-              @click="filterType = 'all'"
-            >All</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'article' }" 
-              @click="filterType = 'article'"
-            >Articles</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'repo' }" 
-              @click="filterType = 'repo'"
-            >Repos</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'photo' }" 
-              @click="filterType = 'photo'"
-            >Photos</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'code-error' }" 
-              @click="filterType = 'code-error'"
-            >Code Errors</button>
-          </div>
-        </div>
-
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list" x-show="loading">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div class="empty-placeholder" x-show="!loading && filteredItems().length === 0">
-          <div class="icon">🌅</div>
-          <h3>No clips for Today</h3>
-          <p>You're all caught up on urgent items.</p>
-        </div>
-
-        <!-- Clip Cards List -->
-        <div class="clip-grid" x-show="!loading && filteredItems().length > 0">
-          <template x-for="item in filteredItems()" :key="item.id">
-            <article 
-              class="clip-card" 
-              :class="{ 'selected': store.isSelected(item.id) }"
-              @click="store.openDetail(item)"
-            >
-              <input 
-                type="checkbox" 
-                class="clip-checkbox" 
-                :checked="store.isSelected(item.id)" 
-                @click.stop="store.toggleSelect(item.id)"
-                aria-label="Select clip"
-              >
-              <div class="clip-body">
-                <div class="clip-header-row">
-                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
-                    <span 
-                      class="type-badge" 
-                      :class="item.type || 'article'"
-                      x-html="typeIcon(item.type).svg + ' ' + (item.type || 'article')"
-                    ></span>
-                    <h3 class="clip-title" x-text="item.title || item.url"></h3>
-                  </div>
-                  <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
-                </div>
-                <p class="clip-summary" x-text="item.summary || 'No summary available.'"></p>
-                <div class="clip-footer">
-                  <div class="clip-tags-list">
-                    <template x-for="tag in (item.tags || [])" :key="tag">
-                      <span class="tag-badge" x-text="'#' + tag"></span>
-                    </template>
-                  </div>
-                  <div style="display: flex; gap: 0.35rem;">
-                    <button 
-                      type="button" 
-                      class="btn-icon" 
-                      style="font-size: 0.75rem; padding: 0.15rem 0.45rem;"
-                      @click.stop="setStatus(item.id, 'archived')"
-                    >Archive</button>
-                  </div>
-                </div>
-              </div>
-            </article>
-          </template>
-        </div>
-      </section>
-
-      <!-- 2. INBOX PAGE -->
-      <section x-show="currentPage === 'inbox'" x-data="pageInbox()">
-        <div class="page-header">
-          <div>
-            <h1>Inbox</h1>
-            <p>New captures awaiting review, tagging, or filing</p>
-          </div>
-          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
-        </div>
-
-        <!-- Filter Toolbar -->
-        <div class="filter-toolbar">
-          <div class="filter-pills">
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'all' }" 
-              @click="filterType = 'all'"
-            >All</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'article' }" 
-              @click="filterType = 'article'"
-            >Articles</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'repo' }" 
-              @click="filterType = 'repo'"
-            >Repos</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'photo' }" 
-              @click="filterType = 'photo'"
-            >Photos</button>
-            <button 
-              type="button"
-              class="filter-pill" 
-              :class="{ 'active': filterType === 'code-error' }" 
-              @click="filterType = 'code-error'"
-            >Errors</button>
-          </div>
-
-          <div style="max-width: 240px; width: 100%;">
-            <input 
-              type="search" 
-              placeholder="Filter inbox..." 
-              x-model="searchFilter" 
-              style="margin-bottom: 0; height: 1.9rem; font-size: 0.8rem;"
-            >
-          </div>
-        </div>
-
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list" x-show="loading">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div class="empty-placeholder" x-show="!loading && filteredItems().length === 0">
-          <div class="icon">📥</div>
-          <h3>Inbox Zero!</h3>
-          <p>No unprocessed items in your queue.</p>
-        </div>
-
-        <!-- Clip Cards List -->
-        <div class="clip-grid" x-show="!loading && filteredItems().length > 0">
-          <template x-for="item in filteredItems()" :key="item.id">
-            <article 
-              class="clip-card" 
-              :class="{ 'selected': store.isSelected(item.id) }"
-              @click="store.openDetail(item)"
-            >
-              <input 
-                type="checkbox" 
-                class="clip-checkbox" 
-                :checked="store.isSelected(item.id)" 
-                @click.stop="store.toggleSelect(item.id)"
-                aria-label="Select clip"
-              >
-              <div class="clip-body">
-                <div class="clip-header-row">
-                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
-                    <span 
-                      class="type-badge" 
-                      :class="item.type || 'article'"
-                      x-html="typeIcon(item.type).svg + ' ' + (item.type || 'article')"
-                    ></span>
-                    <h3 class="clip-title" x-text="item.title || item.url"></h3>
-                  </div>
-                  <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
-                </div>
-                <p class="clip-summary" x-text="item.summary || 'No summary available.'"></p>
-                <div class="clip-footer">
-                  <div class="clip-tags-list">
-                    <template x-for="tag in (item.tags || [])" :key="tag">
-                      <span class="tag-badge" x-text="'#' + tag"></span>
-                    </template>
-                  </div>
-                  <div style="display: flex; gap: 0.35rem;">
-                    <button 
-                      type="button" 
-                      class="btn-icon" 
-                      style="font-size: 0.75rem; padding: 0.15rem 0.45rem;"
-                      @click.stop="setStatus(item.id, 'archived')"
-                    >Archive</button>
-                  </div>
-                </div>
-              </div>
-            </article>
-          </template>
-        </div>
-
-        <!-- Bulk Action Toolbar (Floating when items selected) -->
-        <div class="bulk-toolbar" x-show="store.selectedIds.length > 0">
-          <span style="font-weight: 600; font-size: 0.85rem;" x-text="store.selectedIds.length + ' selected'"></span>
-          <button type="button" class="btn-clip" @click="bulkArchive()">Archive</button>
-          <button type="button" class="btn-icon" @click="bulkTag()">Add Tag</button>
-          <button type="button" class="btn-icon" style="color: var(--decay-red); border-color: var(--decay-red);" @click="bulkDelete()">Delete</button>
-          <button type="button" class="btn-icon" @click="store.deselectAll()">Deselect</button>
-        </div>
-      </section>
-
-      <!-- 3. LIBRARY PAGE -->
-      <section x-show="currentPage === 'library'" x-data="pageLibrary()">
-        <div class="page-header">
-          <div>
-            <h1>Library</h1>
-            <p>Knowledge vault grouped by media type with memory decay telemetry</p>
-          </div>
-          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
-        </div>
-
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list" x-show="loading">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div class="empty-placeholder" x-show="!loading && groups().length === 0">
-          <div class="icon">📚</div>
-          <h3>Library is empty</h3>
-          <p>Clips processed or filed will appear here grouped by type.</p>
-        </div>
-
-        <!-- Groups by Type -->
-        <div x-show="!loading && groups().length > 0">
-          <template x-for="group in groups()" :key="group.type">
-            <div style="margin-bottom: 2rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem;">
-              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <span 
-                    class="type-badge" 
-                    :class="group.type"
-                    x-html="typeIcon(group.type).svg + ' ' + group.type"
-                  ></span>
-                  <strong x-text="'(' + group.count + ')'"></strong>
-                </div>
-                <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="'Last touched: ' + group.lastTouchedStr"></span>
-              </div>
-
-              <!-- Decay Bar -->
-              <div class="decay-bar-container" title="Decay: days since saved">
-                <div 
-                  class="decay-bar" 
-                  :class="group.decayInfo.colorClass" 
-                  :style="'width: ' + group.decayInfo.widthPercent + '%;'"
-                ></div>
-              </div>
-
-              <!-- Items in this group -->
-              <div class="clip-grid" style="margin-top: 1rem;">
-                <template x-for="item in group.items" :key="item.id">
-                  <article 
-                    class="clip-card" 
-                    :class="{ 'selected': store.isSelected(item.id) }"
-                    @click="store.openDetail(item)"
-                  >
-                    <div class="clip-body">
-                      <div class="clip-header-row">
-                        <h4 class="clip-title" x-text="item.title || item.url"></h4>
-                        <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
-                      </div>
-                      <p class="clip-summary" x-text="item.summary || ''"></p>
-                      <div class="clip-footer">
-                        <div class="clip-tags-list">
-                          <template x-for="tag in (item.tags || [])" :key="tag">
-                            <span class="tag-badge" x-text="'#' + tag"></span>
-                          </template>
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                </template>
-              </div>
-            </div>
-          </template>
-        </div>
-      </section>
-
-      <!-- 4. ASK PAGE (HAG-18) -->
-      <section x-show="currentPage === 'ask'" x-data="pageAsk()">
-        <div class="page-header">
-          <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <span class="type-badge article" style="font-size: 0.75rem;">Engine: Claude Code CLI</span>
-          </div>
-        </div>
-
-        <!-- Prompt Suggestions -->
-        <div class="prompt-suggestions">
-          <template x-for="s in suggestions" :key="s">
-            <button type="button" class="suggestion-pill" @click="sendSuggestion(s)" x-text="s"></button>
-          </template>
-        </div>
-
-        <!-- Chat Container -->
-        <div class="chat-layout">
-          <!-- Messages Box -->
-          <div class="chat-messages" id="chatMessagesBox">
-            <template x-for="m in messages" :key="m.id">
-              <div class="chat-bubble" :class="m.role">
-                <div class="chat-bubble-meta">
-                  <span style="font-weight: 600;" x-text="m.role === 'user' ? 'You' : 'Second Brain (Claude)'"></span>
-                  <span x-text="new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></span>
-                </div>
-                <div class="chat-bubble-content" x-html="renderBubble(m.content)"></div>
-                <span 
-                  class="streaming-cursor" 
-                  x-show="isStreaming && m.role === 'assistant' && m === messages[messages.length - 1]"
-                ></span>
-              </div>
-            </template>
-          </div>
-
-          <!-- Chat Input Bar with AbortController -->
-          <div class="chat-input-bar">
-            <textarea 
-              x-model="inputText" 
-              placeholder="Ask about your clips, notes, or patterns... (Enter to send, Shift+Enter for newline)"
-              rows="1"
-              @keydown.enter.prevent="if (!$event.shiftKey) sendMessage()"
-            ></textarea>
-            <button 
-              type="button" 
-              class="btn-clip" 
-              :disabled="isStreaming || !inputText.trim()" 
-              @click="sendMessage()"
-            >Send</button>
-            <button 
-              type="button" 
-              class="btn-icon" 
-              style="color: var(--decay-red); border-color: var(--decay-red);" 
-              x-show="isStreaming" 
-              @click="abortStream()"
-            >Stop</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- 5. SKILLS PAGE (HAG-14) -->
-      <section x-show="currentPage === 'skills'" x-data="pageSkills()">
-        <div class="page-header">
-          <div>
-            <h1>Skills</h1>
-            <p>Custom extraction templates, agents, and automation workflows</p>
-          </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn-icon" @click="loadSkills()" title="Refresh">↻</button>
-            <button class="btn-clip" x-show="!isEditing" @click="newSkill()">+ New Skill</button>
-          </div>
-        </div>
-
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list" x-show="loading && !isEditing">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div class="empty-placeholder" x-show="!loading && !isEditing && skills.length === 0">
-          <div class="icon">⚡</div>
-          <h3>No Skills Defined</h3>
-          <p>Create prompt templates and specialized extraction workflows.</p>
-        </div>
-
-        <!-- Skills Cards Grid -->
-        <div class="skills-grid" x-show="!isEditing && !loading && skills.length > 0">
-          <template x-for="skill in skills" :key="skill.id">
-            <article class="skill-card">
-              <div>
-                <div class="skill-card-header">
-                  <h3 x-text="skill.name"></h3>
-                  <span 
-                    class="type-badge" 
-                    :class="skill.type || 'article'"
-                    x-html="typeIcon(skill.type).svg + ' ' + (skill.type || 'skill')"
-                  ></span>
-                </div>
-                <p class="skill-card-desc" x-text="skill.description || 'No description provided.'"></p>
-              </div>
-              <div class="skill-card-actions">
-                <button type="button" class="btn-icon" @click="editSkill(skill)">Edit</button>
-                <button 
-                  type="button" 
-                  class="btn-icon" 
-                  style="color: var(--decay-red); border-color: var(--decay-red);" 
-                  @click="deleteSkill(skill.id)"
-                >Delete</button>
-              </div>
-            </article>
-          </template>
-        </div>
-
-        <!-- Split-View Editor -->
-        <div class="split-view-container" x-show="isEditing">
-          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
-            <h3 style="margin: 0; font-size: 1.15rem;" x-text="editForm.id ? 'Edit Skill' : 'Create New Skill'"></h3>
-            <div style="display: flex; gap: 0.5rem;">
-              <button type="button" class="btn-icon" @click="cancelEdit()">Cancel</button>
-              <button type="button" class="btn-clip" @click="saveSkill()">Save Skill</button>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 180px; gap: 1rem; margin-top: 0.5rem;">
-            <div>
-              <label for="skillNameInput" style="font-size: 0.85rem; font-weight: 600;">Skill Name</label>
-              <input 
-                type="text" 
-                id="skillNameInput" 
-                x-model="editForm.name" 
-                placeholder="e.g. GitHub Architecture Analyzer"
-                style="margin-bottom: 0;"
-              >
-            </div>
-            <div>
-              <label for="skillTypeSelect" style="font-size: 0.85rem; font-weight: 600;">Type</label>
-              <select id="skillTypeSelect" x-model="editForm.type" style="margin-bottom: 0;">
-                <option value="article">Article</option>
-                <option value="repo">Repo</option>
-                <option value="video">Video</option>
-                <option value="book">Book</option>
-                <option value="code-error">Code Error</option>
-                <option value="photo">Photo</option>
-                <option value="paper">Paper</option>
-                <option value="summarizer">Summarizer</option>
-                <option value="analyzer">Analyzer</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label for="skillDescInput" style="font-size: 0.85rem; font-weight: 600;">Description</label>
-            <input 
-              type="text" 
-              id="skillDescInput" 
-              x-model="editForm.description" 
-              placeholder="Brief summary of what this skill does"
-              style="margin-bottom: 0;"
-            >
-          </div>
-
-          <div class="split-view-grid">
-            <!-- Left Pane: Raw Template Editor -->
-            <div class="editor-pane">
-              <label style="font-size: 0.85rem; font-weight: 600;">Prompt Template (Markdown)</label>
-              <textarea 
-                x-model="editForm.prompt_template" 
-                placeholder="# Instructions for LLM&#10;&#10;Synthesize: {{content}}"
-              ></textarea>
-            </div>
-
-            <!-- Right Pane: Sanitized Markdown Preview -->
-            <div class="preview-pane">
-              <label style="font-size: 0.85rem; font-weight: 600;">Sanitized Preview (DOMPurify)</label>
-              <div class="preview-pane-content" x-html="renderPreview()"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 6. SETTINGS PAGE (HAG-15) -->
-      <section x-show="currentPage === 'settings'" x-data="pageSettings()">
-        <div class="page-header">
-          <div>
-            <h1>Settings & Second Brain</h1>
-            <p>Persona directives (soul), persistent memory, user context, and system telemetry</p>
-          </div>
-          <button class="btn-icon" @click="loadAll()" title="Refresh">↻</button>
-        </div>
-
-        <!-- Settings Tab Navigation -->
-        <nav class="settings-tab-bar" aria-label="Settings tabs">
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'soul' }" 
-            @click="setTab('soul')"
-          >Soul (soul.md)</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'memory' }" 
-            @click="setTab('memory')"
-          >Memory (memory.md)</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'user' }" 
-            @click="setTab('user')"
-          >User (user.md)</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'self' }" 
-            @click="setTab('self')"
-          >Self-Improvement</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'providers' }" 
-            @click="setTab('providers')"
-          >Providers</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'pairing' }" 
-            @click="setTab('pairing')"
-          >Pairing</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'devices' }" 
-            @click="setTab('devices')"
-          >Devices</button>
-          <button 
-            type="button" 
-            class="settings-tab-btn" 
-            :class="{ 'active': activeTab === 'daemon' }" 
-            @click="setTab('daemon')"
-          >Daemon & Stats</button>
-        </nav>
-
-        <!-- Memory / Soul / User File Viewers -->
-        <div x-show="['soul', 'memory', 'user'].includes(activeTab)">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; background: var(--bg-surface); padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid var(--border-color);">
-            <div style="font-size: 0.85rem; color: var(--text-secondary);">
-              <span style="font-weight: 600; text-transform: uppercase;" x-text="activeTab + '.md'"></span>
-              <span style="margin-left: 0.5rem; color: var(--text-muted);" x-text="'ETag: ' + (parts[activeTab]?.etag || '1')"></span>
-              <span style="margin-left: 0.5rem; color: var(--text-muted);" x-text="'(' + currentContent().length + ' chars)'"></span>
-            </div>
-            <div style="display: flex; gap: 0.5rem;">
-              <button 
-                type="button" 
-                class="btn-icon" 
-                @click="editMode = !editMode" 
-                x-text="editMode ? 'Preview' : 'Edit'"
-              ></button>
-              <button 
-                type="button" 
-                class="btn-clip" 
-                x-show="editMode" 
-                @click="saveCurrentPart()"
-              >Save Changes</button>
-            </div>
-          </div>
-
-          <!-- Markdown View Component (Rendered Preview) -->
-          <article class="markdown-view-card" x-show="!editMode">
-            <div class="markdown-view-content" x-html="renderMarkdown()"></div>
-          </article>
-
-          <!-- Raw Editor -->
-          <div x-show="editMode" style="display: flex; flex-direction: column; gap: 0.5rem;">
-            <textarea 
-              x-model="parts[activeTab].content"
-              style="width: 100%; min-height: 450px; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; padding: 1rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); resize: vertical;"
-              placeholder="Enter markdown..."
-            ></textarea>
-          </div>
-        </div>
-
-        <!-- Self-Improvement Tab (HAG-16) -->
-        <div x-show="activeTab === 'self'">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; background: var(--bg-surface); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border-color);">
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-              <div class="live-indicator">
-                <span class="live-dot" :class="{ 'connecting': !store.sseConnected }"></span>
-                <span x-text="store.sseConnected ? 'Live Learning Stream Active' : 'Connecting SSE...'"></span>
-              </div>
-              <span style="font-size: 0.85rem; color: var(--text-muted);" x-text="'Tracking ' + patterns.length + ' patterns & ' + topics.length + ' topics'"></span>
-            </div>
-            <button type="button" class="btn-clip" @click="recomputeSelf()">Recompute Patterns</button>
-          </div>
-
-          <!-- User Topics Section -->
-          <div class="markdown-view-card" style="margin-bottom: 1.25rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <h3 style="margin: 0; font-size: 1.05rem;">Discovered User Topics</h3>
-              <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="topics.length + ' topics indexed'"></span>
-            </div>
-            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-              Semantic clusters extracted autonomously from your saved clips.
-            </p>
-            <div class="topics-cloud">
-              <template x-for="t in topics" :key="t.topic || t.name">
-                <span class="topic-tag">
-                  <span x-text="t.topic || t.name"></span>
-                  <small style="opacity: 0.7; margin-left: 0.25rem;" x-text="'(' + (t.weight || t.count || 1) + ')'"></small>
-                </span>
-              </template>
-              <div x-show="topics.length === 0" style="color: var(--text-muted); font-size: 0.85rem;">
-                No topics extracted yet. Save more clips or trigger recompute.
-              </div>
-            </div>
-          </div>
-
-          <!-- User Patterns Section -->
-          <div class="markdown-view-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <h3 style="margin: 0; font-size: 1.05rem;">Learned Behavioral Patterns</h3>
-              <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="patterns.length + ' patterns active'"></span>
-            </div>
-            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-              Habits and preferences detected across your clipping workflow. New patterns stream via SSE in real time.
-            </p>
-            <div class="patterns-grid">
-              <template x-for="p in patterns" :key="p.id || p.name">
-                <div class="pattern-card">
-                  <div class="pattern-header">
-                    <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);" x-text="p.name"></h4>
-                    <span class="pattern-confidence" x-text="Math.round((p.confidence || 0.8) * 100) + '% match'"></span>
-                  </div>
-                  <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0;" x-text="p.description || p.pattern"></p>
-                  <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; justify-content: space-between; margin-top: auto; padding-top: 0.5rem;">
-                    <span x-text="'Category: ' + (p.category || 'General')"></span>
-                    <span x-text="formatDate((p.created_at || Date.now() / 1000) * 1000)"></span>
-                  </div>
-                </div>
-              </template>
-              <div x-show="patterns.length === 0" style="color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1;">
-                No learned patterns detected yet.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Providers Tab (HAG-17) -->
-        <div x-show="activeTab === 'providers'">
-          <div class="markdown-view-card" style="margin-bottom: 1.25rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <h3 style="margin: 0; font-size: 1.05rem;">Active Extraction Provider</h3>
-              <span class="type-badge article" style="font-size: 0.75rem;" x-text="'Active: ' + (providers.active || 'claude').toUpperCase()"></span>
-            </div>
-            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-              Select the LLM CLI engine used for text extraction, OCR analysis, and Obsidian vault synthesis. Claude Code CLI is the sole active engine in v1.
-            </p>
-            <div class="providers-grid">
-              <template x-for="p in providers.list" :key="p.id">
-                <div class="provider-card" :class="{ 'active-provider': providers.active === p.id }">
-                  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                    <div>
-                      <h4 style="margin: 0; font-size: 1rem; color: var(--text-primary);" x-text="p.name"></h4>
-                      <code style="font-size: 0.75rem; color: var(--text-muted);" x-text="p.bin + ' ' + (Array.isArray(p.args) ? p.args.join(' ') : p.args)"></code>
-                    </div>
-                    <span 
-                      class="type-badge" 
-                      :class="providers.active === p.id ? 'repo' : 'code-error'"
-                      style="font-size: 0.7rem; padding: 2px 6px;"
-                      x-text="providers.active === p.id ? 'Active' : 'Template'"
-                    ></span>
-                  </div>
-                  <p style="font-size: 0.825rem; color: var(--text-secondary); margin: 0.25rem 0;" x-text="p.desc"></p>
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
-                    <small style="color: var(--text-muted); font-size: 0.75rem;" x-text="'Model: ' + p.model"></small>
-                    <button 
-                      type="button" 
-                      class="btn-icon" 
-                      style="font-size: 0.75rem; padding: 0.25rem 0.5rem;"
-                      :disabled="providers.active === p.id"
-                      @click="selectProvider(p.id)"
-                      x-text="providers.active === p.id ? 'Selected' : 'Use Engine'"
-                    ></button>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-
-          <!-- Raw Config TOML Editor -->
-          <div class="markdown-view-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <h3 style="margin: 0; font-size: 1.05rem;">Provider Config File (~/.clipper/config.toml)</h3>
-              <button type="button" class="btn-clip" @click="saveProvidersToml()">Save Config</button>
-            </div>
-            <textarea 
-              x-model="providers.toml"
-              style="width: 100%; min-height: 220px; font-family: ui-monospace, monospace; font-size: 0.85rem; line-height: 1.45; padding: 0.75rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); resize: vertical;"
-              placeholder="[provider]..."
-            ></textarea>
-          </div>
-        </div>
-
-        <!-- Pairing Tab (HAG-17) -->
-        <div x-show="activeTab === 'pairing'">
-          <div class="markdown-view-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-              <div>
-                <h3 style="margin: 0; font-size: 1.1rem;">Phone PWA LAN Pairing</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">
-                  Scan the QR code from your phone's browser or camera to pair the lightweight Progressive Web App on your local network.
-                </p>
-              </div>
-              <div class="ttl-countdown" style="background: var(--bg-surface); padding: 0.4rem 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
-                <span>⏱ Token TTL:</span>
-                <strong style="color: var(--text-primary);" x-text="pairing.ttl_formatted"></strong>
-              </div>
-            </div>
-
-            <div class="pairing-container">
-              <!-- Left: QR Code Box with SW Cached Image -->
-              <div class="qr-box">
-                <img 
-                  :src="pairing.qr_url" 
-                  class="qr-image" 
-                  alt="Pairing QR Code"
-                  title="Phone Pairing QR Code (cached in SW with 5m TTL)"
-                >
-                <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.75rem;">
-                  Point phone camera at QR code
-                </span>
-              </div>
-
-              <!-- Right: Pairing Details & Actions -->
-              <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div>
-                  <label style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">
-                    Local LAN Pairing URL
-                  </label>
-                  <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <input 
-                      type="text" 
-                      readonly 
-                      :value="pairing.pair_url" 
-                      style="margin-bottom: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; background-color: var(--bg-surface);"
-                    >
-                    <button type="button" class="btn-icon" @click="copyText(pairing.pair_url, 'Pairing URL')">Copy</button>
-                  </div>
-                </div>
-
-                <div>
-                  <label style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">
-                    Rotating Session Token (24h)
-                  </label>
-                  <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <div class="token-badge" style="flex: 1;" x-text="pairing.token || 'No active token'"></div>
-                    <button type="button" class="btn-icon" @click="copyText(pairing.token, 'Token')">Copy</button>
-                  </div>
-                </div>
-
-                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.85rem; font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
-                  <strong>LAN Pairing Security:</strong> Port <code>7137</code> receives uploads only from clients presenting this rotating token.
-                  The token rotates automatically every 24 hours via SSE.
-                </div>
-
-                <div style="margin-top: auto; padding-top: 0.5rem;">
-                  <button 
-                    type="button" 
-                    class="btn-icon" 
-                    style="border-color: var(--decay-red); color: var(--decay-red);" 
-                    @click="openRegenerateModal()"
-                  >
-                    Regenerate Pairing Token
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Devices Tab (HAG-17) -->
-        <div x-show="activeTab === 'devices'">
-          <div class="markdown-view-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-              <div>
-                <h3 style="margin: 0; font-size: 1.05rem;">Connected LAN Phone Devices</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">
-                  Mobile devices currently paired via LAN PWA session.
-                </p>
-              </div>
-              <button 
-                type="button" 
-                class="btn-icon" 
-                style="color: var(--decay-red); border-color: var(--decay-red);"
-                x-show="devices.length > 0"
-                @click="revokeAllDevices()"
-              >Revoke All</button>
-            </div>
-
-            <div x-show="devices.length === 0" style="padding: 2rem 0; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-              No mobile devices paired. Open the Pairing tab and scan the QR code to pair your phone.
-            </div>
-
-            <table class="devices-table" x-show="devices.length > 0">
-              <thead>
-                <tr>
-                  <th>Device / Client</th>
-                  <th>IP Address</th>
-                  <th>Status</th>
-                  <th>Last Active</th>
-                  <th style="text-align: right;">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="d in devices" :key="d.id">
-                  <tr>
-                    <td>
-                      <div style="font-weight: 600;" x-text="d.name"></div>
-                      <div style="font-size: 0.75rem; color: var(--text-muted);" x-text="d.client"></div>
-                    </td>
-                    <td>
-                      <code x-text="d.ip"></code>
-                    </td>
-                    <td>
-                      <span class="device-status-dot" :class="d.status"></span>
-                      <span style="text-transform: capitalize;" x-text="d.status"></span>
-                    </td>
-                    <td style="color: var(--text-muted); font-size: 0.8rem;" x-text="formatDate(d.last_active * 1000)"></td>
-                    <td style="text-align: right;">
-                      <button 
-                        type="button" 
-                        class="btn-icon" 
-                        style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: var(--decay-red);"
-                        @click="revokeDevice(d.id)"
-                      >Revoke</button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- RegeneratePairing Confirm Modal -->
-        <div 
-          class="confirm-modal-overlay" 
-          x-show="showRegenerateModal" 
-          @click.self="closeRegenerateModal()"
-        >
-          <div class="confirm-modal-box" role="dialog" aria-modal="true" aria-labelledby="regenerateModalTitle">
-            <h3 id="regenerateModalTitle" style="margin: 0 0 0.75rem 0; font-size: 1.15rem; color: var(--text-primary);">
-              Regenerate Pairing Token?
-            </h3>
-            <p style="font-size: 0.875rem; line-height: 1.5; color: var(--text-secondary); margin-bottom: 1.25rem;">
-              Regenerating will revoke the active 24-hour token immediately. Any currently connected mobile phone PWA sessions will be disconnected and will need to scan the new QR code to reconnect.
-            </p>
-            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-              <button 
-                type="button" 
-                class="btn-icon" 
-                @click="closeRegenerateModal()"
-                :disabled="regenerating"
-              >Cancel</button>
-              <button 
-                type="button" 
-                class="btn-clip" 
-                style="background-color: var(--decay-red); border-color: var(--decay-red);"
-                @click="confirmRegeneratePairing()"
-                :disabled="regenerating"
-                x-text="regenerating ? 'Regenerating...' : 'Yes, Regenerate Token'"
-              ></button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Daemon & Stats Tab -->
-        <div x-show="activeTab === 'daemon'">
-          <div class="markdown-view-card">
-            <h3>Clipper Daemon Status</h3>
-            <p><strong>Endpoint:</strong> <code>127.0.0.1:7137</code></p>
-            <p><strong>Total Clips Indexed:</strong> <span x-text="stats.total || 0"></span></p>
-            <p><strong>Stale Clips (&gt;30d):</strong> <span x-text="stats.stale_30d || 0"></span></p>
-            <hr>
-            <h4>Clips by Status</h4>
-            <ul>
-              <li>Inbox: <span x-text="stats.by_status?.inbox || 0"></span></li>
-              <li>Library: <span x-text="stats.by_status?.library || 0"></span></li>
-              <li>Archived: <span x-text="stats.by_status?.archived || 0"></span></li>
-            </ul>
-            <h4>Clips by Type</h4>
-            <ul>
-              <template x-for="[type, count] in Object.entries(stats.by_type || {})" :key="type">
-                <li><span x-text="type.toUpperCase()"></span>: <span x-text="count"></span></li>
-              </template>
-            </ul>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <!-- Detail Drawer / Mobile Bottom-Sheet -->
-    <div 
-      class="detail-overlay" 
-      x-show="store.showDetailDrawer" 
-      @click.self="store.closeDetail()"
-    >
-      <aside 
-        class="detail-drawer" 
-        role="dialog" 
-        aria-modal="true" 
-        aria-labelledby="detailDrawerTitle"
-        x-show="store.showDetailDrawer"
-      >
-        <header class="detail-drawer-header">
-          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
-            <span 
-              class="type-badge" 
-              :class="store.activeDetailItem?.type || 'article'"
-              x-html="typeIcon(store.activeDetailItem?.type).svg + ' ' + (store.activeDetailItem?.type || 'article')"
-            ></span>
-            <span 
-              style="font-size: 0.75rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);"
-              x-text="store.activeDetailItem?.status || 'inbox'"
-            ></span>
-          </div>
-          <button class="modal-close" @click="store.closeDetail()" aria-label="Close">&times;</button>
-        </header>
-
-        <!-- Side-Panel Tabs (Details vs Chat with Clip) (HAG-18) -->
-        <nav class="drawer-tabs">
-          <button 
-            type="button" 
-            class="drawer-tab-btn" 
-            :class="{ 'active': store.drawerTab === 'details' }" 
-            @click="store.drawerTab = 'details'"
-          >Details</button>
-          <button 
-            type="button" 
-            class="drawer-tab-btn" 
-            :class="{ 'active': store.drawerTab === 'chat' }" 
-            @click="store.drawerTab = 'chat'"
-          >Chat with Clip</button>
-        </nav>
-
-        <!-- 1. Clip Details Tab Body -->
-        <div class="detail-drawer-body" x-if="store.activeDetailItem" x-show="store.drawerTab === 'details'">
-          <div>
-            <h2 id="detailDrawerTitle" style="font-size: 1.25rem; margin: 0 0 0.5rem 0;" x-text="store.activeDetailItem.title || store.activeDetailItem.url"></h2>
-            <div style="font-size: 0.8rem; color: var(--text-muted);" x-text="'Saved: ' + formatDate(store.activeDetailItem.saved_at * 1000)"></div>
-          </div>
-
-          <div>
-            <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">Summary</h4>
-            <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);" x-text="store.activeDetailItem.summary || 'No summary available.'"></p>
-          </div>
-
-          <!-- Tag Input Component -->
-          <div>
-            <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">Tags</h4>
-            <div class="tag-input-container">
-              <template x-for="t in (store.activeDetailItem.tags || [])" :key="t">
-                <span class="tag-chip">
-                  <span x-text="'#' + t"></span>
-                  <span 
-                    class="tag-chip-remove" 
-                    @click="
-                      store.activeDetailItem.tags = store.activeDetailItem.tags.filter(itemTag => itemTag !== t);
-                      api('/api/items/' + encodeURIComponent(store.activeDetailItem.id) + '/tags', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tags: store.activeDetailItem.tags })
-                      });
-                      toast('Tag removed', 'saved');
-                    "
-                  >&times;</span>
-                </span>
-              </template>
-              <input 
-                type="text" 
-                class="tag-input-field" 
-                placeholder="+ add tag (Enter)..." 
-                x-model="store.newTagInput"
-                @keydown.enter.prevent="
-                  if (store.newTagInput && store.newTagInput.trim()) {
-                    const clean = store.newTagInput.trim().toLowerCase();
-                    if (!store.activeDetailItem.tags) store.activeDetailItem.tags = [];
-                    if (!store.activeDetailItem.tags.includes(clean)) {
-                      store.activeDetailItem.tags.push(clean);
-                      api('/api/items/' + encodeURIComponent(store.activeDetailItem.id) + '/tags', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tags: store.activeDetailItem.tags })
-                      });
-                      toast('Tag added', 'saved');
-                    }
-                    store.newTagInput = '';
-                  }
-                "
-              >
-            </div>
-          </div>
-
-          <!-- Vault Path & Source Link -->
-          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; background: var(--bg-surface); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
-            <div>
-              <strong>Obsidian Vault:</strong>
-              <code style="word-break: break-all;" x-text="store.activeDetailItem.vault_path || 'Inbox/'"></code>
-            </div>
-            <template x-if="store.activeDetailItem.url">
-              <div>
-                <strong>Source:</strong>
-                <a :href="store.activeDetailItem.url" target="_blank" rel="noopener noreferrer" style="word-break: break-all;" x-text="store.activeDetailItem.url"></a>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <!-- 2. Side-Panel Chat View (HAG-18) -->
-        <div 
-          class="detail-drawer-body" 
-          x-if="store.activeDetailItem" 
-          x-show="store.drawerTab === 'chat'" 
-          style="display: flex; flex-direction: column; height: 100%; padding: 0;"
-        >
-          <div class="chat-messages" style="flex: 1; padding: 1rem;" id="clipChatBox">
-            <template x-for="m in store.getClipMessages()" :key="m.id">
-              <div class="chat-bubble" :class="m.role" style="font-size: 0.85rem; max-width: 90%;">
-                <div class="chat-bubble-meta">
-                  <span style="font-weight: 600;" x-text="m.role === 'user' ? 'You' : 'Clip Assistant'"></span>
-                  <span x-text="new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></span>
-                </div>
-                <div class="chat-bubble-content" x-html="typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(marked.parse(m.content || '')) : m.content"></div>
-                <span 
-                  class="streaming-cursor" 
-                  x-show="store.clipChatStreaming && m.role === 'assistant' && m === store.getClipMessages()[store.getClipMessages().length - 1]"
-                ></span>
-              </div>
-            </template>
-          </div>
-
-          <div class="chat-input-bar">
-            <textarea 
-              x-model="store.clipChatInput" 
-              placeholder="Ask question about this clip..."
-              rows="1"
-              @keydown.enter.prevent="if (!$event.shiftKey) store.sendClipChatMessage()"
-            ></textarea>
-            <button 
-              type="button" 
-              class="btn-clip" 
-              :disabled="store.clipChatStreaming || !store.clipChatInput.trim()" 
-              @click="store.sendClipChatMessage()"
-            >Send</button>
-            <button 
-              type="button" 
-              class="btn-icon" 
-              style="color: var(--decay-red); border-color: var(--decay-red);" 
-              x-show="store.clipChatStreaming" 
-              @click="store.abortClipChat()"
-            >Stop</button>
-          </div>
-        </div>
-
-        <footer class="detail-drawer-footer" x-if="store.activeDetailItem">
-          <div style="display: flex; gap: 0.5rem;">
-            <button 
-              type="button" 
-              class="btn-clip" 
-              @click="
-                const id = store.activeDetailItem.id;
-                store.activeDetailItem.status = 'archived';
-                api('/api/items/' + encodeURIComponent(id) + '/status', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: 'archived' })
-                });
-                toast('Archived clip', 'saved');
-                store.closeDetail();
-              "
-            >Archive</button>
-            <button 
-              type="button" 
-              class="btn-icon" 
-              @click="
-                const id = store.activeDetailItem.id;
-                store.activeDetailItem.status = 'library';
-                api('/api/items/' + encodeURIComponent(id) + '/status', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: 'library' })
-                });
-                toast('Filed to Library', 'saved');
-              "
-            >Library</button>
-          </div>
-          <button 
-            type="button" 
-            class="btn-icon" 
-            style="color: var(--decay-red); border-color: var(--decay-red);" 
-            @click="
-              const id = store.activeDetailItem.id;
-              api('/api/items/' + encodeURIComponent(id) + '/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'deleted' })
-              });
-              toast('Deleted clip', 'saved');
-              store.closeDetail();
-            "
-          >Delete</button>
-        </footer>
-      </aside>
-    </div>
-
-    <!-- Quick Capture Modal Stub -->
-    <div 
-      class="modal-backdrop" 
-      x-show="showQuickCaptureModal" 
-      @click.self="closeModals()"
-    >
-      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="quickCaptureTitle">
-        <div class="modal-header">
-          <h3 id="quickCaptureTitle">Quick Capture Clip</h3>
-          <button class="modal-close" @click="closeModals()" aria-label="Close">&times;</button>
-        </div>
-        <form @submit.prevent="submitQuickCapture()">
-          <label for="quickCaptureInput">URL or snippet</label>
-          <input 
-            type="text" 
-            id="quickCaptureInput" 
-            x-model="quickCaptureUrl" 
-            placeholder="https://example.com/article" 
-            required
-          >
-          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
-            <button type="button" class="btn-icon" @click="closeModals()">Cancel</button>
-            <button type="submit" class="btn-clip">Queue Clip</button>
-          </div>
-        </form>
+      <blockquote style="font-family: var(--font-display); font-size: var(--fs-md); line-height: 1.4; color: var(--ink); border-left: 2px solid var(--accent); padding-left: var(--sp-3); margin: 0 0 var(--sp-4) 0; font-style: italic;">
+        "Learn Tokio internals. Read 1 chapter a day."
+      </blockquote>
+      <div style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-6);">
+        Active projects (3) →
       </div>
-    </div>
 
-    <!-- Keyboard Shortcuts Modal -->
-    <div 
-      class="modal-backdrop" 
-      x-show="showShortcutsModal" 
-      @click.self="closeModals()"
-    >
-      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
-        <div class="modal-header">
-          <h3 id="shortcutsTitle">Keyboard Shortcuts</h3>
-          <button class="modal-close" @click="closeModals()" aria-label="Close">&times;</button>
-        </div>
-        <table class="shortcuts-table">
-          <tbody>
-            <tr>
-              <td><kbd>/</kbd></td>
-              <td>Focus search input</td>
-            </tr>
-            <tr>
-              <td><kbd>c</kbd></td>
-              <td>Open quick-capture clip modal</td>
-            </tr>
-            <tr>
-              <td><kbd>a</kbd></td>
-              <td>Archive selected item (Inbox page)</td>
-            </tr>
-            <tr>
-              <td><kbd>j</kbd> / <kbd>k</kbd></td>
-              <td>Navigate next / previous item in list</td>
-            </tr>
-            <tr>
-              <td><kbd>?</kbd></td>
-              <td>Open keyboard shortcuts overlay</td>
-            </tr>
-            <tr>
-              <td><kbd>Esc</kbd></td>
-              <td>Close active modal or panel</td>
-            </tr>
-          </tbody>
-        </table>
-        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
-          <button type="button" class="btn-clip" @click="closeModals()">Got it</button>
-        </div>
+      <div style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute-2); margin-bottom: var(--sp-3);">
+        Today's Digest
       </div>
-    </div>
-
-    <!-- Toast Notification Container (Bottom-Right) -->
-    <div class="toast-container" aria-live="polite">
-      <template x-for="t in toasts" :key="t.id">
-        <div class="toast-item" :class="t.kind">
-          <span x-text="t.kind === 'error' ? '⚠️' : (t.kind === 'saved' ? '✅' : 'ℹ️')"></span>
-          <span x-text="t.msg"></span>
-        </div>
-      </template>
-    </div>
+      <ul style="padding-left: var(--sp-4); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; margin: 0 0 var(--sp-5) 0;">
+        <li>Catch up on borrow-checker article</li>
+        <li>The async/await piece you flagged last week</li>
+        <li>Close out 2 stale Go items</li>
+      </ul>
+      <div style="display: flex; gap: var(--sp-2);">
+        <button type="button" class="btn btn-secondary btn-sm">Edit focus</button>
+        <button type="button" class="btn btn-ghost btn-sm">Read all</button>
+      </div>
+    </aside>
   </div>
+
+  <!-- Mobile Bottom Tab Bar (<900px) -->
+  <nav class="mobile-bottom-bar" aria-label="Mobile Navigation">
+    <a href="#/today" class="mobile-tab-btn" :class="{ 'active': currentPage === 'today' }">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polyline points="12 6 12 12 16 14"></polyline>
+      </svg>
+      <span>Today</span>
+    </a>
+    <a href="#/library" class="mobile-tab-btn" :class="{ 'active': currentPage === 'library' }">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+      </svg>
+      <span>Library</span>
+    </a>
+    <a href="#/inbox" class="mobile-tab-btn" :class="{ 'active': currentPage === 'inbox' }">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+      </svg>
+      <span>Inbox</span>
+    </a>
+    <a href="#/ask" class="mobile-tab-btn" :class="{ 'active': currentPage === 'ask' }">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      <span>Ask</span>
+    </a>
+    <a href="#/settings" class="mobile-tab-btn" :class="{ 'active': currentPage === 'settings' }">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span>Settings</span>
+    </a>
+  </nav>
+
+  <!-- Mobile Save Floating Action Button -->
+  <button type="button" class="mobile-fab-save" aria-label="Save clip">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="12" y1="5" x2="12" y2="19"></line>
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+    </svg>
+  </button>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" aria-live="assertive">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast" x-text="t.message"></div>
+    </template>
+  </div>
+
 </body>
 </html>
