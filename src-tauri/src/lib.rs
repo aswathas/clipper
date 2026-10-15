@@ -18,6 +18,7 @@ pub mod config;
 pub mod db;
 pub mod drainer;
 pub mod frontmatter;
+pub mod memory;
 pub mod pairing;
 pub mod prompts;
 pub mod queue;
@@ -283,8 +284,19 @@ pub fn run() {
                     }
                 })?;
 
+            // ---- the second brain: soul / user / memory ----
+            let memory = Arc::new(memory::load_now(&config::state_dir())?);
+            println!(
+                "Clipper: memory loaded from {}",
+                memory::memory_dir(&config::state_dir()).display()
+            );
+
             // ---- background drainer ----
-            let drainer = Arc::new(Drainer::new(cfg.clone(), Arc::clone(&lock))?);
+            let drainer = Arc::new(Drainer::new(
+                cfg.clone(),
+                Arc::clone(&lock),
+                Arc::clone(&memory),
+            )?);
             tauri::async_runtime::spawn(async move {
                 drainer.run_forever().await;
             });

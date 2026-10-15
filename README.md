@@ -163,6 +163,24 @@ accepts a leading `~`.
 | `server.bind` / `.port` | `127.0.0.1` / `7137` | dashboard + API |
 | `prompts.extract` | `~/.clipper/prompts/extract.md` | the extraction prompt |
 
+### Memory files
+
+Three markdown files are read at startup and sent ahead of **every** Claude prompt, so
+the persona and your context come before the task:
+
+```
+~/.clipper/memory/
+├── soul.md      # persona and tone
+├── user.md      # your expertise, style, dislikes
+└── memory.md    # active work, recent focus, today's plan
+```
+
+They are created with defaults on first run (seeded from `src-tauri/seed/`). Edit them
+and restart Clipper for the change to take effect; a live editor is planned.
+
+Each prompt is assembled as `<soul><user><memory>`, then a `---` fenced copy of
+`extract.md`, then the batch instructions.
+
 Setting **`CLIPPER_HOME`** replaces `~/.clipper` entirely — that is how
 `scripts/smoke.ps1` runs a whole session without touching your real state, and it also
 makes a portable install possible.
@@ -212,6 +230,7 @@ clipper.exe --hag3-smoke   # vault, queue, drainer, writer
 clipper.exe --hag4-smoke   # SQLite, FTS5, every REST route over real HTTP
 clipper.exe --hag6-smoke   # image capture through the drainer
 clipper.exe --hag7-smoke   # pairing: /pair, /pair.png, token-gated /save
+clipper.exe --hag10-smoke  # soul/user/memory seeding + injection into the Claude prompt
 ```
 
 > These live behind flags rather than in `tests/` because a Rust test-harness binary

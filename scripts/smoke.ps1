@@ -125,6 +125,11 @@ Check 'config vault path resolves inside CLIPPER_HOME' `
     ($vaultPath.StartsWith($clipperHome)) `
     "vault.path = $vaultPath"
 
+foreach ($part in @('soul', 'user', 'memory')) {
+    $partPath = Join-Path $clipperHome "memory\$part.md"
+    Check "memory\$part.md seeded on first run" (Test-Path $partPath) $partPath
+}
+
 # ------------------------------------------- test config + fake provider
 
 Write-Step 'configuring the run: port 0, faked provider'

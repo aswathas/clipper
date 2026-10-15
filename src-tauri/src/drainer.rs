@@ -13,6 +13,7 @@ use std::{
 use crate::{
     clock,
     config::Config,
+    memory::Memory,
     prompts,
     queue::{self, QueueEntry},
 };
@@ -49,14 +50,16 @@ struct ProviderRun {
 pub struct Drainer {
     cfg: Config,
     lock: Arc<Mutex<()>>,
-    /// `extract.md`, read once at startup.
+    /// The preamble for every prompt: soul + user + memory, then `extract.md`.
     header: String,
 }
 
 impl Drainer {
-    pub fn new(cfg: Config, lock: Arc<Mutex<()>>) -> io::Result<Self> {
+    pub fn new(cfg: Config, lock: Arc<Mutex<()>>, memory: Arc<Memory>) -> io::Result<Self> {
         cfg.ensure_dirs()?;
-        let header = prompts::ensure_extract_prompt(&cfg.extract_prompt_path())?;
+        let extract = prompts::ensure_extract_prompt(&cfg.extract_prompt_path())?;
+        // Persona and context first, so Claude meets the user before the task.
+        let header = memory.build_claude_prompt(&extract);
         Ok(Self { cfg, lock, header })
     }
 

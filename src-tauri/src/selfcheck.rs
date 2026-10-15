@@ -25,8 +25,18 @@ use crate::{
     capture::{self, CaptureOutcome},
     config::Config,
     drainer::Drainer,
+    memory::Memory,
     queue,
 };
+
+/// A throwaway [`Memory`] for checks that are not about the persona files.
+fn scratch_memory() -> Arc<Memory> {
+    Arc::new(Memory {
+        soul: "# Soul\n(scratch)\n".to_string(),
+        user: "# User\n(scratch)\n".to_string(),
+        memory: "# Memory\n(scratch)\n".to_string(),
+    })
+}
 
 /// An isolated `~/.clipper` + vault.
 struct Fixture {
@@ -138,7 +148,8 @@ fn three_urls_become_three_notes() -> Result<(), String> {
     fs::write(&list, listing).map_err(|e| e.to_string())?;
 
     let cfg = fixture.printing_provider(&list);
-    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock)).map_err(|e| e.to_string())?;
+    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock), scratch_memory())
+        .map_err(|e| e.to_string())?;
     let outcome = drainer.run_once().map_err(|e| e.to_string())?;
 
     if outcome.picked != 3 {
@@ -251,7 +262,8 @@ fn garbage_stdout_deadletters() -> Result<(), String> {
     cfg.provider.claude.command = "cmd".into();
     cfg.provider.claude.args = vec!["/c".into(), "echo".into(), "not-a-real-path".into()];
 
-    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock)).map_err(|e| e.to_string())?;
+    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock), scratch_memory())
+        .map_err(|e| e.to_string())?;
     let outcome = drainer.run_once().map_err(|e| e.to_string())?;
 
     if outcome.reason.as_deref() != Some("bad-stdout") {
@@ -803,7 +815,8 @@ fn hag6_image_capture() -> Result<(), String> {
     cfg.provider.image.prompt_hint =
         "Use mcp__MiniMax__understand_image to caption the image at <path>.".into();
 
-    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock)).map_err(|e| e.to_string())?;
+    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock), scratch_memory())
+        .map_err(|e| e.to_string())?;
     let outcome = drainer.run_once().map_err(|e| e.to_string())?;
 
     if let Some(reason) = &outcome.reason {
@@ -996,6 +1009,154 @@ fn hag7_pair_and_save() -> Result<(), String> {
     let entry: Value = serde_json::from_str(&queued[0]).map_err(|e| e.to_string())?;
     if entry["source"] != "phone" {
         return Err(format!("queue source = {}", entry["source"]));
+    }
+
+    Ok(())
+}
+
+// ========================================================= HAG-10 self-check
+
+/// HAG-10 (Slice A1): the soul / user / memory files, and their injection into
+/// every Claude prompt.
+pub fn run_hag10() -> i32 {
+    println!("hag10 self-check");
+    let mut failed = 0;
+    match hag10_memory_injection() {
+        Ok(()) => println!("  PASS hag10_memory_injection"),
+        Err(message) => {
+            failed += 1;
+            println!("  FAIL hag10_memory_injection: {message}");
+        }
+    }
+
+    if failed == 0 {
+        println!("hag10 self-check: OK (1 check)");
+        0
+    } else {
+        println!("hag10 self-check: {failed} FAILED");
+        1
+    }
+}
+
+fn hag10_memory_injection() -> Result<(), String> {
+    use crate::memory;
+
+    let root = std::env::temp_dir().join(format!("clipper-hag10-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+
+    // ---- 1-2. first run seeds the three files from the embedded defaults ----
+    let seeded = memory::load_now(&root).map_err(|e| e.to_string())?;
+    let dir = memory::memory_dir(&root);
+    for (name, expected) in [
+        (memory::SOUL, memory::default_soul()),
+        (memory::USER, memory::default_user()),
+        (memory::MEMORY, memory::default_memory()),
+    ] {
+        let path = dir.join(format!("{name}.md"));
+        if !path.is_file() {
+            return Err(format!("{name}.md was not seeded at {}", path.display()));
+        }
+        let actual = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if actual != expected {
+            return Err(format!("{name}.md does not match the embedded default"));
+        }
+    }
+    if seeded.soul != memory::default_soul() || seeded.memory != memory::default_memory() {
+        return Err("the loaded parts do not match the defaults".into());
+    }
+
+    // ---- 3. the user edits user.md ----
+    let edited = memory::default_user().replace("expertise: []", "expertise: [rust]");
+    if edited == memory::default_user() {
+        return Err("could not build the edited user.md".into());
+    }
+    memory::save_part_at(&root, memory::USER, &edited).map_err(|e| e.to_string())?;
+
+    // ---- 4. a reload picks the edit up, and the header carries all three ----
+    let reloaded = memory::load_now(&root).map_err(|e| e.to_string())?;
+    let header = memory::render_header(&reloaded);
+    if !header.starts_with("# Soul") {
+        return Err(format!(
+            "header does not start with '# Soul', got {:?}",
+            header.chars().take(40).collect::<String>()
+        ));
+    }
+    for needle in ["# Soul", "# User", "# Memory", "rust"] {
+        if !header.contains(needle) {
+            return Err(format!("header is missing {needle:?}"));
+        }
+    }
+
+    // ---- and the prompt the drainer really hands to the provider ----
+    let mut cfg = Config::default();
+    let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+    cfg.vault.path = temp(root.join("Vault"));
+    cfg.queue.dir = temp(root.join("queue"));
+    cfg.queue.staging_dir = temp(root.join("staging"));
+    cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+    cfg.queue.timeout_s = 60;
+    cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+    let captured = root.join("captured-prompt.md");
+    let list = cfg.staging_dir().join("hag10-list.txt");
+    let note = cfg.staging_dir().join("hag10-note.md");
+    fs::write(
+        &note,
+        "---\ntype: article\nsource: example.com\nurl: https://example.com/x\n\
+         saved_at: 2026-01-01T00:00:00Z\ntitle: Memory check\nsummary: s.\ntags: [t]\n---\n\n# Memory check\n",
+    )
+    .map_err(|e| e.to_string())?;
+    fs::write(&list, note.display().to_string()).map_err(|e| e.to_string())?;
+
+    // A provider that records the prompt it receives on stdin, then reports the
+    // note path it would have written.
+    let script = format!(
+        "$p = [Console]::In.ReadToEnd(); Set-Content -Path '{}' -Value $p; Get-Content '{}'",
+        captured.display(),
+        list.display()
+    );
+    cfg.provider.claude.command = "powershell".into();
+    cfg.provider.claude.args = vec!["-NoProfile".into(), "-Command".into(), script];
+
+    let lock = Arc::new(Mutex::new(()));
+    capture::capture(&cfg, &lock, "https://example.com/x").map_err(|e| e.to_string())?;
+
+    let drainer = Drainer::new(cfg.clone(), Arc::clone(&lock), Arc::new(reloaded))
+        .map_err(|e| e.to_string())?;
+    let outcome = drainer.run_once().map_err(|e| e.to_string())?;
+    if let Some(reason) = &outcome.reason {
+        return Err(format!("batch deadlettered: {reason}"));
+    }
+    if outcome.written.len() != 1 {
+        return Err(format!("wrote {}, expected 1", outcome.written.len()));
+    }
+
+    let prompt = fs::read_to_string(&captured)
+        .map_err(|e| format!("the provider recorded no prompt: {e}"))?;
+
+    if !prompt.starts_with("# Soul") {
+        return Err(format!(
+            "prompt does not start with '# Soul', got {:?}",
+            prompt.chars().take(60).collect::<String>()
+        ));
+    }
+
+    // Order matters: persona, then user, then memory, then the task brief.
+    let at = |needle: &str| prompt.find(needle).unwrap_or(usize::MAX);
+    let (soul, user, mem, task) = (
+        at("# Soul"),
+        at("# User"),
+        at("# Memory"),
+        at("You are Clipper's extractor"),
+    );
+    if !(soul < user && user < mem && mem < task) {
+        return Err(format!(
+            "prompt parts are out of order: soul={soul} user={user} memory={mem} task={task}"
+        ));
+    }
+    if !prompt.contains("expertise: [rust]") {
+        return Err("the edited expertise never reached the prompt".into());
     }
 
     Ok(())
