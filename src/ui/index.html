@@ -813,11 +813,193 @@
           </div>
         </section>
 
-        <section x-show="currentPage === 'settings'">
+        <!-- Settings Page (DESIGN.md Section 8) -->
+        <section x-show="currentPage === 'settings'" x-data="pageSettings()">
           <div class="top-bar">
             <div class="top-bar-titles">
               <h2 class="top-bar-title">Settings</h2>
               <p class="top-bar-desc">Persona directives, second brain memory, and providers.</p>
+            </div>
+          </div>
+
+          <div class="settings-layout">
+            <!-- Left Rail of Settings Tabs -->
+            <aside class="settings-tabs-rail">
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'soul' }" @click="activeTab = 'soul'">Soul</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'memory' }" @click="activeTab = 'memory'">Memory</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'self' }" @click="activeTab = 'self'">Self</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'providers' }" @click="activeTab = 'providers'">Providers</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'pairing' }" @click="activeTab = 'pairing'">Pairing</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'devices' }" @click="activeTab = 'devices'">Devices</button>
+            </aside>
+
+            <!-- Settings Content Pane -->
+            <div class="settings-content-pane">
+              <!-- Tab 1: Soul -->
+              <div x-show="activeTab === 'soul'">
+                <h3 class="settings-section-title">Persona &amp; Philosophy</h3>
+                <div class="settings-field">
+                  <label class="settings-label">Persona Directive</label>
+                  <textarea class="settings-input" rows="3" x-model="soul.persona" @input="markDirty()"></textarea>
+                  <span class="settings-help">Defines the underlying temperament and lens Claude applies when evaluating saved material.</span>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">Tone &amp; Voice</label>
+                  <textarea class="settings-input" rows="2" x-model="soul.tone" @input="markDirty()"></textarea>
+                  <span class="settings-help">Guidance on synthesis density, prose cadence, and vocabulary preferences.</span>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">Avoid / Negative Constraints</label>
+                  <textarea class="settings-input" rows="2" x-model="soul.avoid" @input="markDirty()"></textarea>
+                  <span class="settings-help">Patterns, platitudes, or filler phrases forbidden in synthesized notes.</span>
+                </div>
+
+                <div style="margin-top: var(--sp-4);">
+                  <div class="section-caption" style="margin-bottom: var(--sp-2);">Soul Directive Preview</div>
+                  <div class="slideover-markdown" style="background-color: var(--surface-2); padding: var(--sp-4); border-radius: var(--r-md); border: 1px solid var(--hairline);" x-html="renderSoulPreview()"></div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Memory -->
+              <div x-show="activeTab === 'memory'">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--sp-3);">
+                  <h3 class="settings-section-title" style="margin: 0;">User Profile &amp; Memory Core</h3>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="regenerateMemory()">✨ Regenerate with Claude</button>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">User Name</label>
+                  <input type="text" class="settings-input" x-model="memory.userName" @input="markDirty()" />
+                  <span class="settings-help">Displayed in the personalized greeting on the Today landing page.</span>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">Active Learning Focus (user.md)</label>
+                  <input type="text" class="settings-input" x-model="memory.focus" @input="markDirty()" />
+                  <span class="settings-help">Quotes directly into the right rail on the Today page.</span>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">Durable Memory Log (memory.md)</label>
+                  <textarea class="settings-input" rows="5" x-model="memory.notes" @input="markDirty()" style="font-family: var(--font-mono); font-size: var(--fs-xs);"></textarea>
+                  <span class="settings-help">Persistent facts, active projects, and preferences observed across sessions.</span>
+                </div>
+              </div>
+
+              <!-- Tab 3: Self -->
+              <div x-show="activeTab === 'self'">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--sp-3);">
+                  <h3 class="settings-section-title" style="margin: 0;">Learned Topics &amp; Patterns</h3>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="recomputeSelf()">↻ Recompute now</button>
+                </div>
+
+                <div style="margin-bottom: var(--sp-5);">
+                  <div class="settings-label" style="margin-bottom: var(--sp-2);">Topic Clusters</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: var(--sp-2);">
+                    <template x-for="t in self.topics" :key="t.name">
+                      <span class="filter-chip" style="cursor: default;">
+                        <span x-text="'#' + t.name"></span>
+                        <span style="font-size: 10px; opacity: 0.7;" x-text="t.count"></span>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="settings-label" style="margin-bottom: var(--sp-2);">Observed Behavioral Patterns</div>
+                  <div class="pattern-grid">
+                    <template x-for="pat in self.patterns" :key="pat.id">
+                      <div class="pattern-card">
+                        <div style="font-size: var(--fs-sm); font-weight: 500; color: var(--ink);" x-text="pat.title"></div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+                          <span style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="'Confidence: ' + pat.confidence"></span>
+                          <button type="button" class="btn btn-ghost btn-sm" style="font-size: var(--fs-xs); color: var(--danger); padding: 1px 4px;" @click="forgetPattern(pat)">Forget this</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 4: Providers -->
+              <div x-show="activeTab === 'providers'">
+                <h3 class="settings-section-title">CLI Inference Providers</h3>
+                <div style="margin-bottom: var(--sp-5);">
+                  <template x-for="prov in providers" :key="prov.cli">
+                    <div class="provider-row">
+                      <div>
+                        <div style="font-weight: 500; color: var(--ink); font-size: var(--fs-sm);">
+                          <span x-text="prov.name"></span>
+                          <span x-show="prov.active" style="background-color: var(--accent-soft); color: var(--accent); font-size: 10px; padding: 1px 5px; border-radius: var(--r-sm); margin-left: var(--sp-2); font-weight: 600;">ACTIVE</span>
+                        </div>
+                        <div style="font-size: var(--fs-xs); color: var(--mute); margin-top: 2px;">
+                          <span x-text="'CLI: ' + prov.cli"></span>
+                          <span>·</span>
+                          <span x-text="'Status: ' + prov.status"></span>
+                          <span>·</span>
+                          <span x-text="'Latency: ' + prov.latency"></span>
+                        </div>
+                      </div>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="testProvider(prov)">Test</button>
+                    </div>
+                  </template>
+                </div>
+
+                <div class="settings-field">
+                  <label class="settings-label">Configuration Editor (config.toml)</label>
+                  <textarea class="settings-input" rows="8" x-model="configToml" @input="markDirty()" style="font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.5;"></textarea>
+                  <span class="settings-help">Direct configuration for providers, model selection, local port binding, and obsidian vault root.</span>
+                </div>
+              </div>
+
+              <!-- Tab 5: Pairing -->
+              <div x-show="activeTab === 'pairing'">
+                <h3 class="settings-section-title">Local Network Pairing</h3>
+                <div style="display: flex; gap: var(--sp-6); align-items: flex-start; margin-bottom: var(--sp-5);">
+                  <div style="background-color: var(--surface); padding: var(--sp-3); border: 1px solid var(--hairline); border-radius: var(--r-md); text-align: center;">
+                    <div style="width: 140px; height: 140px; background-color: var(--surface-2); display: flex; align-items: center; justify-content: center; border-radius: var(--r-sm); border: 1px dashed var(--hairline); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--mute);">
+                      [QR Code]
+                    </div>
+                    <div style="font-size: var(--fs-xs); color: var(--mute-2); margin-top: var(--sp-2);" x-text="'TTL: ' + pairing.ttl"></div>
+                  </div>
+
+                  <div style="flex: 1;">
+                    <div class="settings-field">
+                      <label class="settings-label">Local LAN Address</label>
+                      <input type="text" class="settings-input" :value="pairing.lanIp" readonly style="font-family: var(--font-mono);" />
+                      <span class="settings-help">Scan from your phone or mobile browser while connected to the same Wi-Fi.</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="regenerateQr()">Regenerate Token</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 6: Devices -->
+              <div x-show="activeTab === 'devices'">
+                <h3 class="settings-section-title">Paired Mobile Devices</h3>
+                <div style="display: flex; flex-direction: column; gap: var(--sp-2);">
+                  <template x-for="dev in devices" :key="dev.id">
+                    <div class="provider-row">
+                      <div>
+                        <div style="font-weight: 500; color: var(--ink); font-size: var(--fs-sm);" x-text="dev.name"></div>
+                        <div style="font-size: var(--fs-xs); color: var(--mute); margin-top: 2px;">
+                          <span x-text="'Last seen ' + dev.lastSeen"></span>
+                          <span>·</span>
+                          <span x-text="'IP: ' + dev.ip"></span>
+                        </div>
+                      </div>
+                      <button type="button" class="btn btn-ghost btn-sm" style="color: var(--danger);" @click="revokeDevice(dev)">Revoke</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Sticky Save Bar -->
+              <div class="settings-sticky-save">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="!isDirty" @click="saveSettings()">Save Changes</button>
+              </div>
             </div>
           </div>
         </section>

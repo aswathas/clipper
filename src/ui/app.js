@@ -1150,6 +1150,140 @@ function pageSkills() {
   };
 }
 
+function pageSettings() {
+  return {
+    title: "Settings",
+    activeTab: "soul", // 'soul' | 'memory' | 'self' | 'providers' | 'pairing' | 'devices'
+    isDirty: false,
+
+    // Soul Tab
+    soul: {
+      persona: "A calm, intellectual second-brain curator with a focus on editorial clarity and signal over noise.",
+      tone: "Concise, precise, respectful of reader time. Avoid cheerleading or corporate filler.",
+      avoid: "Never produce bulleted summaries that discard nuance. Avoid hyperbole or superficial categorizations."
+    },
+
+    // Memory Tab
+    memory: {
+      userName: "Aswath",
+      focus: "Learn Tokio internals. Read 1 chapter a day.",
+      notes: "- Deep focus on Rust memory safety and non-blocking scheduling.\n- Prefers primary literature over blog aggregators.\n- Vault path configured to ~/Obsidian/SecondBrain."
+    },
+
+    // Self Tab
+    self: {
+      topics: [
+        { name: "rust", count: 47 },
+        { name: "ai", count: 31 },
+        { name: "distributed", count: 18 },
+        { name: "cooking", count: 8 },
+        { name: "compiler", count: 12 },
+        { name: "architecture", count: 24 }
+      ],
+      patterns: [
+        { id: "p1", title: "Reads system architecture on Thursday mornings", confidence: "94%" },
+        { id: "p2", title: "Saves Rust crates via Ctrl+Shift+C shortcut", confidence: "88%" },
+        { id: "p3", title: "Tags LLM papers with #ai and #deep-learning", confidence: "91%" }
+      ]
+    },
+
+    // Providers Tab
+    providers: [
+      { name: "Claude CLI (sonnet)", cli: "claude", active: true, latency: "210ms", status: "ok" },
+      { name: "OpenAI Codex CLI", cli: "codex", active: false, latency: "—", status: "standby" },
+      { name: "Google Gemini CLI", cli: "gemini", active: false, latency: "—", status: "standby" }
+    ],
+    configToml: `[providers.claude]
+command = "claude"
+model = "sonnet"
+timeout_secs = 30
+
+[vault]
+path = "C:/Users/aswat/Obsidian/Vault"
+auto_sync = true
+
+[pairing]
+allowed_lan_subnets = ["192.168.0.0/16"]`,
+
+    // Pairing Tab
+    pairing: {
+      lanIp: "192.168.1.142:3030",
+      ttl: "24m 15s",
+      qrUrl: "/pair.png"
+    },
+
+    // Devices Tab
+    devices: [
+      { id: "d1", name: "iPhone 16 Pro (PWA)", lastSeen: "14 minutes ago", ip: "192.168.1.189" },
+      { id: "d2", name: "iPad Air (Safari)", lastSeen: "2 days ago", ip: "192.168.1.192" }
+    ],
+
+    markDirty() {
+      this.isDirty = true;
+    },
+
+    async saveSettings() {
+      toast("Saving settings...", "info");
+      setTimeout(() => {
+        this.isDirty = false;
+        toast("Settings saved", "info");
+      }, 350);
+    },
+
+    regenerateMemory() {
+      toast("Proposing memory updates via Claude...", "info");
+      setTimeout(() => {
+        this.memory.notes += "\n- Added interest in distributed consensus algorithms.";
+        this.markDirty();
+        toast("Memory updated with new proposed directives", "info");
+      }, 700);
+    },
+
+    recomputeSelf() {
+      toast("Recomputing self-patterns from archive...", "info");
+      setTimeout(() => {
+        toast("Patterns refreshed from 234 saved clips", "info");
+      }, 600);
+    },
+
+    forgetPattern(pattern) {
+      this.self.patterns = this.self.patterns.filter(p => p.id !== pattern.id);
+      toast(`Forgot pattern: "${pattern.title}"`, "info");
+    },
+
+    async testProvider(prov) {
+      toast(`Testing CLI provider "${prov.cli}"...`, "info");
+      setTimeout(() => {
+        prov.latency = Math.floor(180 + Math.random() * 80) + "ms";
+        prov.status = "ok";
+        toast(`${prov.name} passed self-test (${prov.latency})`, "info");
+      }, 500);
+    },
+
+    regenerateQr() {
+      if (confirm("Regenerate pairing token? Active sessions will need to re-scan.")) {
+        this.pairing.ttl = "30m 00s";
+        toast("Generated new pairing QR and session token", "info");
+      }
+    },
+
+    revokeDevice(dev) {
+      this.devices = this.devices.filter(d => d.id !== dev.id);
+      toast(`Revoked access for ${dev.name}`, "info");
+    },
+
+    renderSoulPreview() {
+      const md = `### Persona Directives\n${this.soul.persona}\n\n### Tone & Voice\n${this.soul.tone}\n\n### Negative Constraints\n${this.soul.avoid}`;
+      try {
+        const raw = typeof marked !== "undefined" ? marked.parse(md) : md;
+        return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+      } catch (e) {
+        return md;
+      }
+    }
+  };
+}
+
 /* ============================================================================
    Application Shell Root Component
    ============================================================================ */
