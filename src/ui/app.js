@@ -205,6 +205,27 @@ const MOCK_DATA = {
     { name: "SQLite FTS5", weight: "18%" },
     { name: "Alpine.js UI", weight: "12%" },
     { name: "Tauri v2", weight: "8%" }
+  ],
+  providers: {
+    active: "claude",
+    list: [
+      { id: "claude", name: "Claude Code CLI", bin: "claude", args: ["-p"], model: "claude-3-7-sonnet", status: "active", desc: "Sole active extraction provider for v1. Fast streaming synthesis and MCP vision support." },
+      { id: "codex", name: "OpenAI Codex", bin: "codex", args: ["exec"], model: "gpt-4o", status: "template", desc: "Config template for OpenAI Codex execution engine." },
+      { id: "agy", name: "Antigravity CLI (agy)", bin: "agy", args: ["run"], model: "gemini-2.5-pro", status: "template", desc: "Config template for Google Antigravity multi-agent harness." },
+      { id: "opencode", name: "OpenCode", bin: "opencode", args: ["pipe"], model: "default", status: "template", desc: "Config template for OpenCode streaming model runner." }
+    ],
+    toml: `[provider]\nactive = "claude"\n\n[provider.claude]\nbin = "claude"\nargs = ["-p"]\nmodel = "claude-3-7-sonnet"\n\n# [provider.codex]\n# bin = "codex"\n# args = ["exec"]\n# model = "gpt-4o"\n\n# [provider.agy]\n# bin = "agy"\n# args = ["run"]\n# model = "gemini-2.5-pro"\n\n# [provider.opencode]\n# bin = "opencode"\n# args = ["pipe"]`
+  },
+  pairing: {
+    token: "k7X9p2M5n8Q4v1W6y3Z0b4C7d2E9f1A8",
+    lan_ip: "192.168.1.150",
+    port: 7137,
+    pair_url: "http://192.168.1.150:7137/pair?token=k7X9p2M5n8Q4v1W6y3Z0b4C7d2E9f1A8",
+    expires_at: Math.floor(Date.now() / 1000) + 24 * 3600
+  },
+  devices: [
+    { id: "dev-phone-1", name: "iPhone 15 Pro", client: "Safari Mobile 17.4", ip: "192.168.1.142", last_active: Math.floor((Date.now() - 120000) / 1000), status: "active" },
+    { id: "dev-phone-2", name: "Pixel 8 Pro", client: "Chrome Mobile 122", ip: "192.168.1.168", last_active: Math.floor((Date.now() - 3600000) / 1000), status: "idle" }
   ]
 };
 
@@ -395,6 +416,46 @@ function mockApiHandler(path, opts = {}) {
     if (!MOCK_DATA.patterns) MOCK_DATA.patterns = [];
     MOCK_DATA.patterns.unshift(newPat);
     return { ok: true, pattern: newPat };
+  }
+  if (path === "/api/providers" && method === "GET") {
+    return JSON.parse(JSON.stringify(MOCK_DATA.providers));
+  }
+  if (path === "/api/providers" && method === "POST") {
+    if (opts.body) {
+      try {
+        const payload = JSON.parse(opts.body);
+        if (payload.active) MOCK_DATA.providers.active = payload.active;
+        if (payload.toml) MOCK_DATA.providers.toml = payload.toml;
+      } catch (e) {}
+    }
+    return { ok: true };
+  }
+  if (path === "/api/pairing" && method === "GET") {
+    return JSON.parse(JSON.stringify(MOCK_DATA.pairing));
+  }
+  if (path === "/api/pairing/regenerate" && method === "POST") {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let token = "";
+    for (let i = 0; i < 32; i++) {
+      token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const expires = Math.floor(Date.now() / 1000) + 24 * 3600;
+    MOCK_DATA.pairing.token = token;
+    MOCK_DATA.pairing.expires_at = expires;
+    MOCK_DATA.pairing.pair_url = `http://${MOCK_DATA.pairing.lan_ip}:${MOCK_DATA.pairing.port}/pair?token=${token}`;
+    return { ok: true, token, expires_at: expires, pair_url: MOCK_DATA.pairing.pair_url };
+  }
+  if (path === "/api/devices" && method === "GET") {
+    return { devices: JSON.parse(JSON.stringify(MOCK_DATA.devices)) };
+  }
+  if (path.startsWith("/api/devices/") && path.endsWith("/revoke") && method === "POST") {
+    const id = path.split("/")[3];
+    MOCK_DATA.devices = MOCK_DATA.devices.filter(d => d.id !== id);
+    return { ok: true };
+  }
+  if (path === "/api/devices/revoke-all" && method === "POST") {
+    MOCK_DATA.devices = [];
+    return { ok: true };
   }
   if (path === "/healthz") {
     return "ok";
@@ -1051,7 +1112,7 @@ function pageSettings() {
   return {
     title: "Settings",
     description: "Clipper second brain memory, soul persona, and system configuration",
-    activeTab: "soul", // 'soul' | 'memory' | 'user' | 'daemon'
+    activeTab: "soul", // 'soul' | 'memory' | 'user' | 'self' | 'providers' | 'pairing' | 'devices' | 'daemon'
     loading: false,
     editMode: false,
     parts: {
@@ -1062,6 +1123,24 @@ function pageSettings() {
     stats: { total: 0, by_type: {}, by_status: {}, stale_30d: 0 },
     patterns: [],
     topics: [],
+    providers: {
+      active: "claude",
+      list: [],
+      toml: ""
+    },
+    pairing: {
+      token: "",
+      lan_ip: "127.0.0.1",
+      port: 7137,
+      pair_url: "",
+      expires_at: 0,
+      ttl_formatted: "24h 00m",
+      qr_url: "/pair.png"
+    },
+    devices: [],
+    showRegenerateModal: false,
+    regenerating: false,
+    ttlInterval: null,
     store: ClipStore,
     formatDate(val) {
       return formatDate(val);
@@ -1074,13 +1153,16 @@ function pageSettings() {
     async loadAll() {
       this.loading = true;
       try {
-        const [soulData, memData, userData, statsData, patData, topData] = await Promise.all([
+        const [soulData, memData, userData, statsData, patData, topData, provData, pairData, devData] = await Promise.all([
           api("/api/memory/soul").catch(() => ({ content: "", etag: "1" })),
           api("/api/memory/memory").catch(() => ({ content: "", etag: "1" })),
           api("/api/memory/user").catch(() => ({ content: "", etag: "1" })),
           api("/api/stats").catch(() => ({})),
           api("/api/self/patterns").catch(() => ({ patterns: [] })),
-          api("/api/self/topics").catch(() => ({ topics: [] }))
+          api("/api/self/topics").catch(() => ({ topics: [] })),
+          api("/api/providers").catch(() => ({ active: "claude", list: [], toml: "" })),
+          api("/api/pairing").catch(() => ({ token: "", lan_ip: "127.0.0.1", port: 7137, pair_url: "", expires_at: 0 })),
+          api("/api/devices").catch(() => ({ devices: [] }))
         ]);
         this.parts.soul = { content: soulData.content || "", etag: soulData.etag || "1", dirty: false };
         this.parts.memory = { content: memData.content || "", etag: memData.etag || "1", dirty: false };
@@ -1088,6 +1170,21 @@ function pageSettings() {
         this.stats = statsData || {};
         this.patterns = patData.patterns || [];
         this.topics = topData.topics || [];
+        this.providers = provData || { active: "claude", list: [], toml: "" };
+        this.pairing = {
+          token: pairData.token || "",
+          lan_ip: pairData.lan_ip || "127.0.0.1",
+          port: pairData.port || 7137,
+          pair_url: pairData.pair_url || "",
+          expires_at: pairData.expires_at || 0,
+          ttl_formatted: "24h 00m",
+          qr_url: "/pair.png"
+        };
+        this.devices = devData.devices || [];
+        this.updateTTL();
+        if (!this.ttlInterval) {
+          this.ttlInterval = setInterval(() => this.updateTTL(), 10000);
+        }
       } finally {
         this.loading = false;
       }
@@ -1185,6 +1282,112 @@ function pageSettings() {
           toast(`Failed saving ${part}.md: ${err.message}`, "error");
         }
       }
+    },
+
+    updateTTL() {
+      if (!this.pairing.expires_at) {
+        this.pairing.ttl_formatted = "24h 00m";
+        return;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const diffSec = Math.max(0, this.pairing.expires_at - now);
+      const hours = Math.floor(diffSec / 3600);
+      const minutes = Math.floor((diffSec % 3600) / 60);
+      this.pairing.ttl_formatted = `${hours}h ${minutes < 10 ? "0" : ""}${minutes}m remaining`;
+    },
+
+    async selectProvider(id) {
+      this.providers.active = id;
+      toast(`Active provider set to ${id}`, "saved");
+      try {
+        await api("/api/providers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: id, toml: this.providers.toml })
+        });
+      } catch (e) {
+        toast(`Failed updating provider: ${e.message}`, "error");
+      }
+    },
+
+    async saveProvidersToml() {
+      toast("Saving config.toml...", "info");
+      try {
+        await api("/api/providers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: this.providers.active, toml: this.providers.toml })
+        });
+        toast("Saved ~/.clipper/config.toml", "saved");
+      } catch (e) {
+        toast(`Failed saving config: ${e.message}`, "error");
+      }
+    },
+
+    openRegenerateModal() {
+      this.showRegenerateModal = true;
+    },
+
+    closeRegenerateModal() {
+      this.showRegenerateModal = false;
+    },
+
+    async confirmRegeneratePairing() {
+      this.regenerating = true;
+      try {
+        const res = await api("/api/pairing/regenerate", { method: "POST" });
+        if (res.token) {
+          this.pairing.token = res.token;
+          this.pairing.expires_at = res.expires_at || (Math.floor(Date.now() / 1000) + 24 * 3600);
+          this.pairing.pair_url = `http://${this.pairing.lan_ip}:${this.pairing.port}/pair?token=${res.token}`;
+        }
+        if (typeof navigator !== "undefined" && navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: "INVALIDATE_QR" });
+        }
+        this.pairing.qr_url = `/pair.png?t=${Date.now()}`;
+        this.updateTTL();
+        toast("Pairing token regenerated. Active phone sessions revoked.", "saved");
+      } catch (err) {
+        toast(`Failed to regenerate token: ${err.message}`, "error");
+      } finally {
+        this.regenerating = false;
+        this.showRegenerateModal = false;
+      }
+    },
+
+    async copyText(text, label = "Copied") {
+      try {
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(text);
+          toast(`${label} copied to clipboard`, "saved");
+        } else {
+          toast("Clipboard unavailable", "error");
+        }
+      } catch (e) {
+        toast("Failed to copy", "error");
+      }
+    },
+
+    async revokeDevice(id) {
+      const dev = this.devices.find(d => d.id === id);
+      const name = dev?.name || id;
+      this.devices = this.devices.filter(d => d.id !== id);
+      toast(`Revoked device "${name}"`, "saved");
+      try {
+        await api(`/api/devices/${encodeURIComponent(id)}/revoke`, { method: "POST" });
+      } catch (e) {
+        toast(`Failed revoking device: ${e.message}`, "error");
+      }
+    },
+
+    async revokeAllDevices() {
+      this.devices = [];
+      toast("Revoked all paired phone devices", "saved");
+      try {
+        await api("/api/devices/revoke-all", { method: "POST" });
+      } catch (e) {
+        toast(`Failed revoking devices: ${e.message}`, "error");
+      }
     }
   };
 }
@@ -1211,6 +1414,11 @@ function clipperShell() {
       this.initRouter();
       this.initKeybindings();
       this.initSSE();
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").catch((e) => {
+          console.debug("Service worker registration:", e);
+        });
+      }
     },
 
     initSSE() {
@@ -1244,6 +1452,23 @@ function clipperShell() {
           }
         };
 
+        const handleTokenRotated = (data) => {
+          const payload = typeof data === "string" ? JSON.parse(data) : data;
+          if (typeof navigator !== "undefined" && navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: "INVALIDATE_QR" });
+          }
+          toast("Session token rotated by daemon (24h)", "info");
+          const settingsComp = document.querySelector('[x-data*="pageSettings"]');
+          if (settingsComp && settingsComp._x_dataStack) {
+            const comp = settingsComp._x_dataStack[0];
+            comp.pairing.token = payload.token;
+            comp.pairing.expires_at = payload.expires_at || (Math.floor(Date.now() / 1000) + 24 * 3600);
+            comp.pairing.pair_url = `http://${comp.pairing.lan_ip}:${comp.pairing.port}/pair?token=${payload.token}`;
+            comp.pairing.qr_url = `/pair.png?t=${Date.now()}`;
+            comp.updateTTL();
+          }
+        };
+
         es.addEventListener("pattern_added", (e) => {
           try {
             handlePatternAdded(e.data);
@@ -1252,11 +1477,21 @@ function clipperShell() {
           }
         });
 
+        es.addEventListener("token_rotated", (e) => {
+          try {
+            handleTokenRotated(e.data);
+          } catch (err) {
+            console.warn("Token rotation SSE error:", err);
+          }
+        });
+
         es.onmessage = (e) => {
           try {
             const payload = JSON.parse(e.data);
             if (payload.type === "pattern_added") {
               handlePatternAdded(payload.pattern || payload);
+            } else if (payload.type === "token_rotated") {
+              handleTokenRotated(payload);
             }
           } catch (err) {}
         };

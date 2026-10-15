@@ -645,6 +645,24 @@
           <button 
             type="button" 
             class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'providers' }" 
+            @click="setTab('providers')"
+          >Providers</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'pairing' }" 
+            @click="setTab('pairing')"
+          >Pairing</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'devices' }" 
+            @click="setTab('devices')"
+          >Devices</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
             :class="{ 'active': activeTab === 'daemon' }" 
             @click="setTab('daemon')"
           >Daemon & Stats</button>
@@ -750,6 +768,234 @@
               <div x-show="patterns.length === 0" style="color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1;">
                 No learned patterns detected yet.
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Providers Tab (HAG-17) -->
+        <div x-show="activeTab === 'providers'">
+          <div class="markdown-view-card" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1.05rem;">Active Extraction Provider</h3>
+              <span class="type-badge article" style="font-size: 0.75rem;" x-text="'Active: ' + (providers.active || 'claude').toUpperCase()"></span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+              Select the LLM CLI engine used for text extraction, OCR analysis, and Obsidian vault synthesis. Claude Code CLI is the sole active engine in v1.
+            </p>
+            <div class="providers-grid">
+              <template x-for="p in providers.list" :key="p.id">
+                <div class="provider-card" :class="{ 'active-provider': providers.active === p.id }">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                      <h4 style="margin: 0; font-size: 1rem; color: var(--text-primary);" x-text="p.name"></h4>
+                      <code style="font-size: 0.75rem; color: var(--text-muted);" x-text="p.bin + ' ' + (Array.isArray(p.args) ? p.args.join(' ') : p.args)"></code>
+                    </div>
+                    <span 
+                      class="type-badge" 
+                      :class="providers.active === p.id ? 'repo' : 'code-error'"
+                      style="font-size: 0.7rem; padding: 2px 6px;"
+                      x-text="providers.active === p.id ? 'Active' : 'Template'"
+                    ></span>
+                  </div>
+                  <p style="font-size: 0.825rem; color: var(--text-secondary); margin: 0.25rem 0;" x-text="p.desc"></p>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
+                    <small style="color: var(--text-muted); font-size: 0.75rem;" x-text="'Model: ' + p.model"></small>
+                    <button 
+                      type="button" 
+                      class="btn-icon" 
+                      style="font-size: 0.75rem; padding: 0.25rem 0.5rem;"
+                      :disabled="providers.active === p.id"
+                      @click="selectProvider(p.id)"
+                      x-text="providers.active === p.id ? 'Selected' : 'Use Engine'"
+                    ></button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Raw Config TOML Editor -->
+          <div class="markdown-view-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1.05rem;">Provider Config File (~/.clipper/config.toml)</h3>
+              <button type="button" class="btn-clip" @click="saveProvidersToml()">Save Config</button>
+            </div>
+            <textarea 
+              x-model="providers.toml"
+              style="width: 100%; min-height: 220px; font-family: ui-monospace, monospace; font-size: 0.85rem; line-height: 1.45; padding: 0.75rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); resize: vertical;"
+              placeholder="[provider]..."
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- Pairing Tab (HAG-17) -->
+        <div x-show="activeTab === 'pairing'">
+          <div class="markdown-view-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h3 style="margin: 0; font-size: 1.1rem;">Phone PWA LAN Pairing</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">
+                  Scan the QR code from your phone's browser or camera to pair the lightweight Progressive Web App on your local network.
+                </p>
+              </div>
+              <div class="ttl-countdown" style="background: var(--bg-surface); padding: 0.4rem 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
+                <span>⏱ Token TTL:</span>
+                <strong style="color: var(--text-primary);" x-text="pairing.ttl_formatted"></strong>
+              </div>
+            </div>
+
+            <div class="pairing-container">
+              <!-- Left: QR Code Box with SW Cached Image -->
+              <div class="qr-box">
+                <img 
+                  :src="pairing.qr_url" 
+                  class="qr-image" 
+                  alt="Pairing QR Code"
+                  title="Phone Pairing QR Code (cached in SW with 5m TTL)"
+                >
+                <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.75rem;">
+                  Point phone camera at QR code
+                </span>
+              </div>
+
+              <!-- Right: Pairing Details & Actions -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <label style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">
+                    Local LAN Pairing URL
+                  </label>
+                  <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <input 
+                      type="text" 
+                      readonly 
+                      :value="pairing.pair_url" 
+                      style="margin-bottom: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; background-color: var(--bg-surface);"
+                    >
+                    <button type="button" class="btn-icon" @click="copyText(pairing.pair_url, 'Pairing URL')">Copy</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">
+                    Rotating Session Token (24h)
+                  </label>
+                  <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div class="token-badge" style="flex: 1;" x-text="pairing.token || 'No active token'"></div>
+                    <button type="button" class="btn-icon" @click="copyText(pairing.token, 'Token')">Copy</button>
+                  </div>
+                </div>
+
+                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.85rem; font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
+                  <strong>LAN Pairing Security:</strong> Port <code>7137</code> receives uploads only from clients presenting this rotating token.
+                  The token rotates automatically every 24 hours via SSE.
+                </div>
+
+                <div style="margin-top: auto; padding-top: 0.5rem;">
+                  <button 
+                    type="button" 
+                    class="btn-icon" 
+                    style="border-color: var(--decay-red); color: var(--decay-red);" 
+                    @click="openRegenerateModal()"
+                  >
+                    Regenerate Pairing Token
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices Tab (HAG-17) -->
+        <div x-show="activeTab === 'devices'">
+          <div class="markdown-view-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <div>
+                <h3 style="margin: 0; font-size: 1.05rem;">Connected LAN Phone Devices</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">
+                  Mobile devices currently paired via LAN PWA session.
+                </p>
+              </div>
+              <button 
+                type="button" 
+                class="btn-icon" 
+                style="color: var(--decay-red); border-color: var(--decay-red);"
+                x-show="devices.length > 0"
+                @click="revokeAllDevices()"
+              >Revoke All</button>
+            </div>
+
+            <div x-show="devices.length === 0" style="padding: 2rem 0; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+              No mobile devices paired. Open the Pairing tab and scan the QR code to pair your phone.
+            </div>
+
+            <table class="devices-table" x-show="devices.length > 0">
+              <thead>
+                <tr>
+                  <th>Device / Client</th>
+                  <th>IP Address</th>
+                  <th>Status</th>
+                  <th>Last Active</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="d in devices" :key="d.id">
+                  <tr>
+                    <td>
+                      <div style="font-weight: 600;" x-text="d.name"></div>
+                      <div style="font-size: 0.75rem; color: var(--text-muted);" x-text="d.client"></div>
+                    </td>
+                    <td>
+                      <code x-text="d.ip"></code>
+                    </td>
+                    <td>
+                      <span class="device-status-dot" :class="d.status"></span>
+                      <span style="text-transform: capitalize;" x-text="d.status"></span>
+                    </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem;" x-text="formatDate(d.last_active * 1000)"></td>
+                    <td style="text-align: right;">
+                      <button 
+                        type="button" 
+                        class="btn-icon" 
+                        style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: var(--decay-red);"
+                        @click="revokeDevice(d.id)"
+                      >Revoke</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- RegeneratePairing Confirm Modal -->
+        <div 
+          class="confirm-modal-overlay" 
+          x-show="showRegenerateModal" 
+          @click.self="closeRegenerateModal()"
+        >
+          <div class="confirm-modal-box" role="dialog" aria-modal="true" aria-labelledby="regenerateModalTitle">
+            <h3 id="regenerateModalTitle" style="margin: 0 0 0.75rem 0; font-size: 1.15rem; color: var(--text-primary);">
+              Regenerate Pairing Token?
+            </h3>
+            <p style="font-size: 0.875rem; line-height: 1.5; color: var(--text-secondary); margin-bottom: 1.25rem;">
+              Regenerating will revoke the active 24-hour token immediately. Any currently connected mobile phone PWA sessions will be disconnected and will need to scan the new QR code to reconnect.
+            </p>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+              <button 
+                type="button" 
+                class="btn-icon" 
+                @click="closeRegenerateModal()"
+                :disabled="regenerating"
+              >Cancel</button>
+              <button 
+                type="button" 
+                class="btn-clip" 
+                style="background-color: var(--decay-red); border-color: var(--decay-red);"
+                @click="confirmRegeneratePairing()"
+                :disabled="regenerating"
+                x-text="regenerating ? 'Regenerating...' : 'Yes, Regenerate Token'"
+              ></button>
             </div>
           </div>
         </div>
