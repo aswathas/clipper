@@ -606,18 +606,104 @@
         </div>
       </section>
 
-      <!-- 6. SETTINGS PAGE (PLACEHOLDER) -->
+      <!-- 6. SETTINGS PAGE (HAG-15) -->
       <section x-show="currentPage === 'settings'" x-data="pageSettings()">
         <div class="page-header">
           <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
+            <h1>Settings & Second Brain</h1>
+            <p>Persona directives (soul), persistent memory, user context, and system telemetry</p>
+          </div>
+          <button class="btn-icon" @click="loadAll()" title="Refresh">↻</button>
+        </div>
+
+        <!-- Settings Tab Navigation -->
+        <nav class="settings-tab-bar" aria-label="Settings tabs">
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'soul' }" 
+            @click="setTab('soul')"
+          >Soul (soul.md)</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'memory' }" 
+            @click="setTab('memory')"
+          >Memory (memory.md)</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'user' }" 
+            @click="setTab('user')"
+          >User (user.md)</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'daemon' }" 
+            @click="setTab('daemon')"
+          >Daemon & Stats</button>
+        </nav>
+
+        <!-- Memory / Soul / User File Viewers -->
+        <div x-show="activeTab !== 'daemon'">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; background: var(--bg-surface); padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid var(--border-color);">
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+              <span style="font-weight: 600; text-transform: uppercase;" x-text="activeTab + '.md'"></span>
+              <span style="margin-left: 0.5rem; color: var(--text-muted);" x-text="'ETag: ' + (parts[activeTab]?.etag || '1')"></span>
+              <span style="margin-left: 0.5rem; color: var(--text-muted);" x-text="'(' + currentContent().length + ' chars)'"></span>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button 
+                type="button" 
+                class="btn-icon" 
+                @click="editMode = !editMode" 
+                x-text="editMode ? 'Preview' : 'Edit'"
+              ></button>
+              <button 
+                type="button" 
+                class="btn-clip" 
+                x-show="editMode" 
+                @click="saveCurrentPart()"
+              >Save Changes</button>
+            </div>
+          </div>
+
+          <!-- Markdown View Component (Rendered Preview) -->
+          <article class="markdown-view-card" x-show="!editMode">
+            <div class="markdown-view-content" x-html="renderMarkdown()"></div>
+          </article>
+
+          <!-- Raw Editor -->
+          <div x-show="editMode" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <textarea 
+              x-model="parts[activeTab].content"
+              style="width: 100%; min-height: 450px; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; padding: 1rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); resize: vertical;"
+              placeholder="Enter markdown..."
+            ></textarea>
           </div>
         </div>
-        <div class="empty-placeholder">
-          <div class="icon">⚙</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
+
+        <!-- Daemon & Stats Tab -->
+        <div x-show="activeTab === 'daemon'">
+          <div class="markdown-view-card">
+            <h3>Clipper Daemon Status</h3>
+            <p><strong>Endpoint:</strong> <code>127.0.0.1:7137</code></p>
+            <p><strong>Total Clips Indexed:</strong> <span x-text="stats.total || 0"></span></p>
+            <p><strong>Stale Clips (&gt;30d):</strong> <span x-text="stats.stale_30d || 0"></span></p>
+            <hr>
+            <h4>Clips by Status</h4>
+            <ul>
+              <li>Inbox: <span x-text="stats.by_status?.inbox || 0"></span></li>
+              <li>Library: <span x-text="stats.by_status?.library || 0"></span></li>
+              <li>Archived: <span x-text="stats.by_status?.archived || 0"></span></li>
+            </ul>
+            <h4>Clips by Type</h4>
+            <ul>
+              <template x-for="[type, count] in Object.entries(stats.by_type || {})" :key="type">
+                <li><span x-text="type.toUpperCase()"></span>: <span x-text="count"></span></li>
+              </template>
+            </ul>
+          </div>
         </div>
       </section>
     </main>

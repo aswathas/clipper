@@ -168,7 +168,21 @@ const MOCK_DATA = {
       description: "Parses compiler stack traces and error diagnostics, suggesting idiomatic fixes.",
       prompt_template: "# Error Diagnostic Template\n\nAnalyze the following error trace and explain the root cause and recommended solution:\n\n```\n{{content}}\n```"
     }
-  ]
+  ],
+  memoryParts: {
+    soul: {
+      content: "---\nversion: 1\ntone: concise, technical\nlanguage: en\nmax_summary_words: 25\navoid: [filler, marketing-speak, hedging, I-think]\n---\n\nYou are Clipper, the user's second brain.\n- Prefer specific facts over vague statements\n- Show, don't tell\n- Skip introductions and preambles\n- Calibrate depth to the user's known expertise\n- Never invent links, citations, or quotes\n- When asked for a list, give the list. When asked for an explanation, give the explanation. No meta.",
+      etag: "etag-soul-1"
+    },
+    user: {
+      content: "---\nexpertise: [rust, javascript, linux]\nstyle: concise\ndislikes: [marketing-jargon]\nlanguage: en\n---\n\nUser context:\n- Primary workflows: technical documentation, code snippets, research articles.",
+      etag: "etag-user-1"
+    },
+    memory: {
+      content: "# Active\n- Clipper development v0.2 second brain\n\n# Recent focus\n- Alpine.js frontend UI slices\n- SQLite FTS5 full text search\n\n# Today's plan\n- Finish S5 memory/soul routes\n- SSE integration",
+      etag: "etag-memory-1"
+    }
+  }
 };
 
 // API Client
@@ -324,6 +338,22 @@ function mockApiHandler(path, opts = {}) {
       MOCK_DATA.skills = MOCK_DATA.skills.filter((s) => s.id !== id);
     }
     return { ok: true };
+  }
+  if (path.startsWith("/api/memory/") && method === "GET") {
+    const part = path.split("/api/memory/")[1];
+    const data = (MOCK_DATA.memoryParts && MOCK_DATA.memoryParts[part]) || { content: "", etag: "1" };
+    return data;
+  }
+  if (path.startsWith("/api/memory/") && method === "POST") {
+    const part = path.split("/api/memory/")[1];
+    const body = JSON.parse(opts.body || "{}");
+    if (!MOCK_DATA.memoryParts) MOCK_DATA.memoryParts = {};
+    const newEtag = `etag-${Date.now()}`;
+    MOCK_DATA.memoryParts[part] = {
+      content: body.content || "",
+      etag: newEtag
+    };
+    return { ok: true, etag: newEtag };
   }
   if (path === "/healthz") {
     return "ok";
@@ -978,8 +1008,112 @@ function pageSkills() {
 function pageSettings() {
   return {
     title: "Settings",
-    description: "Clipper daemon configuration, vault paths, and device pairing",
-    statusText: "Coming soon — HAG-15 & HAG-17 will populate this"
+    description: "Clipper second brain memory, soul persona, and system configuration",
+    activeTab: "soul", // 'soul' | 'memory' | 'user' | 'daemon'
+    loading: false,
+    editMode: false,
+    parts: {
+      soul: { content: "", etag: "1", dirty: false },
+      memory: { content: "", etag: "1", dirty: false },
+      user: { content: "", etag: "1", dirty: false }
+    },
+    stats: { total: 0, by_type: {}, by_status: {}, stale_30d: 0 },
+
+    async init() {
+      await this.loadAll();
+    },
+
+    async loadAll() {
+      this.loading = true;
+      try {
+        const [soulData, memData, userData, statsData] = await Promise.all([
+          api("/api/memory/soul").catch(() => ({ content: "", etag: "1" })),
+          api("/api/memory/memory").catch(() => ({ content: "", etag: "1" })),
+          api("/api/memory/user").catch(() => ({ content: "", etag: "1" })),
+          api("/api/stats").catch(() => ({}))
+        ]);
+        this.parts.soul = { content: soulData.content || "", etag: soulData.etag || "1", dirty: false };
+        this.parts.memory = { content: memData.content || "", etag: memData.etag || "1", dirty: false };
+        this.parts.user = { content: userData.content || "", etag: userData.etag || "1", dirty: false };
+        this.stats = statsData || {};
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    setTab(tab) {
+      this.activeTab = tab;
+      this.editMode = false;
+      this.checkCodeMirror();
+    },
+
+    currentContent() {
+      return this.parts[this.activeTab]?.content || "";
+    },
+
+    renderMarkdown() {
+      const raw = this.currentContent();
+      try {
+        if (typeof marked !== "undefined" && typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(marked.parse(raw || "*Empty file.*"));
+        }
+        if (typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(raw);
+        }
+      } catch (e) {
+        console.warn("Markdown render error:", e);
+      }
+      return raw;
+    },
+
+    // Lazy load CodeMirror from CDN if above 10KB (> 10240 characters)
+    checkCodeMirror() {
+      const content = this.currentContent();
+      if (content.length > 10240 && !window.CodeMirror) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css";
+        document.head.appendChild(link);
+
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js";
+        script.onload = () => {
+          const modeScript = document.createElement("script");
+          modeScript.src = "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js";
+          document.head.appendChild(modeScript);
+        };
+        document.head.appendChild(script);
+      }
+    },
+
+    async saveCurrentPart() {
+      const part = this.activeTab;
+      const target = this.parts[part];
+      if (!target) return;
+
+      toast(`Saving ${part}.md...`, "info");
+      try {
+        const res = await api(`/api/memory/${encodeURIComponent(part)}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "If-Match": target.etag || ""
+          },
+          body: JSON.stringify({ content: target.content })
+        });
+        if (res.etag) {
+          target.etag = res.etag;
+        }
+        this.editMode = false;
+        toast(`Successfully saved ${part}.md`, "saved");
+      } catch (err) {
+        if (err.status === 412) {
+          toast(`Conflict: ${part}.md was modified elsewhere (412 Precondition Failed)`, "error");
+        } else {
+          toast(`Failed saving ${part}.md: ${err.message}`, "error");
+        }
+      }
+    }
   };
 }
 
