@@ -2175,3 +2175,192 @@ pub fn run_hag16() -> i32 {
         1
     }
 }
+
+// ========================================================= HAG-17 self-check
+
+/// HAG-17 (S7): providers (read + test) and pairing (view + rotate).
+pub fn run_hag17() -> i32 {
+    use crate::{db, events, server};
+
+    println!("hag17 self-check");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    let root = std::env::temp_dir().join(format!("clipper-hag17-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, Config, String), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.skills.dir = temp(root.join("skills"));
+        cfg.memory.dir = temp(root.join("memory"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        // The "test" button runs whatever is configured, so point it at
+        // something harmless and deterministic.
+        cfg.provider.claude.command = "cmd".into();
+        cfg.provider.claude.args = vec!["/c".into(), "echo".into(), "pong".into()];
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        let token = pairing_token();
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new(token.clone())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(server::serve(listener, state));
+        });
+        wait_for_server(addr.port())?;
+        Ok((addr.port(), cfg, token))
+    })();
+
+    let (port, _cfg, token) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+
+    // 1. the provider view is readable and leak-free
+    gate!("providers_are_readable", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/providers", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/providers -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let claude = &payload["providers"]["claude"];
+        if claude["command"] != "cmd" {
+            return Err(format!("claude.command = {}", claude["command"]));
+        }
+        if claude["args"].as_array().map(Vec::len) != Some(3) {
+            return Err(format!("claude.args = {}", claude["args"]));
+        }
+        if !body.contains("\"image\"") {
+            return Err("the image provider is missing".into());
+        }
+        if body.contains(&token) {
+            return Err("the provider view leaked the pairing token".into());
+        }
+        Ok(())
+    })());
+
+    // 2. the test action really runs the provider
+    gate!("provider_test_runs", (|| -> Result<(), String> {
+        let (status, body) = http(port, "POST", "/api/providers/claude/test", Some("{}"))?;
+        if status != 200 {
+            return Err(format!("POST test -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["ok"] != true {
+            return Err(format!("test reported failure: {body}"));
+        }
+        if payload["exit_code"].as_i64() != Some(0) {
+            return Err(format!("exit_code = {}", payload["exit_code"]));
+        }
+        if payload["stdout_first_line"] != "pong" {
+            return Err(format!("stdout = {}", payload["stdout_first_line"]));
+        }
+        Ok(())
+    })());
+
+    gate!("unknown_provider_is_404", (|| -> Result<(), String> {
+        let (status, _) = http(port, "POST", "/api/providers/nope/test", Some("{}"))?;
+        if status != 404 {
+            return Err(format!("unknown provider -> {status}, expected 404"));
+        }
+        Ok(())
+    })());
+
+    // 3. pairing view: useful, and free of the secret
+    gate!("pairing_view_hides_the_token", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/pairing", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/pairing -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["lan_ip"] == "" {
+            return Err("no lan_ip".into());
+        }
+        if !payload["pair_url"].as_str().unwrap_or("").contains("/pair") {
+            return Err(format!("pair_url = {}", payload["pair_url"]));
+        }
+        if payload["token_length"].as_i64() != Some(32) {
+            return Err(format!("token_length = {}", payload["token_length"]));
+        }
+        if body.contains(&token) {
+            return Err("the pairing view leaked the token".into());
+        }
+        Ok(())
+    })());
+
+    // 4. regenerating swaps the token, which the QR must reflect
+    gate!("regenerate_rotates_the_token", (|| -> Result<(), String> {
+        let (_, head_before, qr_before) = http_bytes(port, "/pair.png")?;
+        let before = format!("{head_before}{:?}", qr_before);
+
+        let mut rx = events::hub().subscribe();
+        let (status, body) = http(port, "POST", "/api/pairing/regenerate", Some("{}"))?;
+        if status != 200 {
+            return Err(format!("regenerate -> {status} {body}"));
+        }
+        let rotated = wait_for_event(&mut rx, "token_rotated", 3000)
+            .ok_or("regenerate did not announce token_rotated")?;
+        if rotated.payload["at"].as_i64().unwrap_or(0) <= 0 {
+            return Err(format!("token_rotated payload = {}", rotated.payload));
+        }
+
+        // The QR encodes the token, so a different image proves the swap.
+        let (_, head_after, qr_after) = http_bytes(port, "/pair.png")?;
+        let after = format!("{head_after}{:?}", qr_after);
+        if before == after {
+            return Err("the QR did not change after regeneration".into());
+        }
+        Ok(())
+    })());
+
+    if failed == 0 {
+        println!("hag17 self-check: OK ({total} gates)");
+        0
+    } else {
+        println!("hag17 self-check: {failed} of {total} FAILED");
+        1
+    }
+}
+
+/// A known 32-character token, so the check can assert it never leaks.
+fn pairing_token() -> String {
+    "0123456789abcdef0123456789abcdef".to_string()
+}

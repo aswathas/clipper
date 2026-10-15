@@ -66,6 +66,10 @@ pub async fn rotate_forever(token: Arc<RwLock<String>>) {
         tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
         let fresh = new_token();
         *token.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = fresh;
+        crate::events::hub().emit(
+            "token_rotated",
+            serde_json::json!({ "at": crate::clock::now_unix() }),
+        );
         println!("pairing: rotated the session token (24h)");
     }
 }

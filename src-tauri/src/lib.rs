@@ -24,6 +24,8 @@ pub mod pairing;
 pub mod prompts;
 pub mod queue;
 pub mod routes_memory;
+pub mod routes_pairing;
+pub mod routes_providers;
 pub mod routes_self;
 pub mod routes_skills;
 pub mod routes_soul;

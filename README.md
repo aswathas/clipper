@@ -222,6 +222,13 @@ Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard
 | `POST /api/events` `{kind, payload?}` | records a `user_event` |
 | `GET /api/self/summary` | `{topics, patterns, recent_events, event_count}` |
 | `POST /api/self/recompute` | rebuilds topics + patterns from the index |
+| `GET /api/providers` | the configured providers (read-only in this release) |
+| `POST /api/providers/{name}/test` | runs the provider once with a trivial prompt; reports exit code + first stdout line |
+| `GET /api/pairing` | `{lan_ip, port, pair_url, qr_path, token_length}` — never the token itself |
+| `POST /api/pairing/regenerate` | rotates the session token and emits `token_rotated` |
+
+The pairing token is **never** returned by the JSON API. It exists only inside the QR
+image served at `/pair.png`, so nothing but a scan of that image can read it.
 
 Optimistic concurrency uses `If-Match` against the part's `etag` — a SHA-256 content
 hash, not the mtime. Filesystems that only tick mtime once per second would let two
