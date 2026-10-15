@@ -29,10 +29,10 @@ One Tauri binary. No cloud, no account, no telemetry.
   and markdown in your vault.
 - **MIT licensed.**
 
-> **Scope of v0.1.0.** `SPEC.md` designs four capture modes (URL, screenshot, photo,
-> free text); this release wires **two** — URL and screenshot. Photo and free-text
-> capture are designed but not implemented yet. The tray's *Show dashboard* and
-> *Settings* items are placeholders: open the dashboard URL directly.
+> **Scope of this release.** `SPEC.md` designs four capture modes (URL, screenshot,
+> photo, free text); this release wires **two** — URL and screenshot. Photo and free-text
+> capture are designed but not implemented yet. The tray's *Settings* item is still a
+> placeholder.
 
 ---
 
@@ -85,7 +85,8 @@ an `.msi` and an NSIS `-setup.exe`.
 1. Launch `clipper.exe`. The tray icon appears; **no window opens** (by design).
 2. Clipper auto-detects your Obsidian vault, or creates `~/Documents/ClipperVault`.
    `~/.clipper/config.toml` is written on this first run and then left alone.
-3. Open `http://127.0.0.1:7137/` for the dashboard.
+3. Tray → *Show dashboard* opens the dashboard window. The same page is served at
+   <http://127.0.0.1:7137/> if you prefer a browser.
 
 ---
 
@@ -100,7 +101,7 @@ an `.msi` and an NSIS `-setup.exe`.
 
 ### Tray menu
 
-- **Show dashboard** — placeholder in v0.1.0; open <http://127.0.0.1:7137/> yourself
+- **Show dashboard** — opens the dashboard window (Today / Inbox / Library)
 - **Settings** — placeholder, planned
 - **Show QR** — opens the phone-pairing QR window
 - **Quit**
@@ -230,6 +231,7 @@ clipper.exe --hag7-smoke   # pairing: /pair, /pair.png, token-gated /save
 | `warning: .rsrc merge failure: multiple non-default manifests` during the build | Known and harmless — MinGW `ld` and `tauri-winres` both supply a manifest. Linking succeeds. |
 | A hotkey does nothing | Another app may already own `Ctrl+Shift+C` / `Ctrl+Shift+X`. Both are constants at the top of `src-tauri/src/lib.rs`. |
 | Notes never appear in the vault | Check `~/.clipper/queue/deadletter.jsonl` — a note there carries the reason (`bad-stdout`, `timeout`, `exit-<code>`). |
+| The dashboard shows sample clips that are not yours (e.g. "Tauri 2.0 Architecture…") | That is the dashboard's built-in offline fallback: it could not reach the API, so it rendered mock fixtures. Make sure Clipper is running, and open the dashboard from the tray. |
 
 ---
 

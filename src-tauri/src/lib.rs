@@ -101,6 +101,55 @@ fn on_capture(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     }
 }
 
+/// Where the app serves its own dashboard.
+fn dashboard_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// Point the bundled window at the dashboard we serve.
+///
+/// `frontendDist` now bundles that same dashboard, but a webview sitting on
+/// `tauri://localhost` cannot reach `/api/...` — its relative fetches hit the
+/// asset server instead of axum, and the dashboard's offline fallback would
+/// quietly render mock fixtures that look real. Loading it from the axum origin
+/// keeps every fetch same-origin.
+fn point_window_at_dashboard<R: tauri::Runtime>(app: &tauri::App<R>, port: u16) {
+    if let Some(window) = app.get_webview_window("main") {
+        navigate_to_dashboard(&window, port);
+    }
+}
+
+fn navigate_to_dashboard<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>, port: u16) {
+    let target = dashboard_url(port);
+
+    if window
+        .url()
+        .map(|current| current.as_str() == target)
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    match target.parse::<tauri::Url>() {
+        Ok(url) => match window.navigate(url) {
+            Ok(()) => println!("Clipper: dashboard window -> {target}"),
+            Err(e) => eprintln!("Clipper: could not point the window at {target}: {e}"),
+        },
+        Err(e) => eprintln!("Clipper: bad dashboard URL {target}: {e}"),
+    }
+}
+
+/// Tray "Show dashboard": reveal the main window, repairing its URL if needed.
+fn show_dashboard<R: tauri::Runtime>(app: &AppHandle<R>, port: u16) {
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("Clipper: no main window to show");
+        return;
+    };
+    navigate_to_dashboard(&window, port);
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
 /// Open (or focus) the small window that shows the pairing QR.
 fn show_qr_window(app: &AppHandle, port: u16) {
     if let Some(window) = app.get_webview_window("qr") {
@@ -158,13 +207,28 @@ pub fn run() {
             println!("Clipper: vault {}", cfg.vault_path().display());
             let lock = Arc::new(Mutex::new(()));
 
+            // ---- bind the API port first, so the real port is known before the
+            //      tray and the dashboard window are built ----
+            let listener = match server::bind(&cfg) {
+                Ok(listener) => listener,
+                Err(e) => {
+                    eprintln!(
+                        "Clipper: cannot bind {}:{} — {e}. Another program (or another Clipper) may be using that port.",
+                        cfg.server.bind, cfg.server.port
+                    );
+                    return Err(Box::new(e));
+                }
+            };
+            // `[server] port = 0` means "pick a free port", so ask the socket.
+            let port = listener
+                .local_addr()
+                .map(|addr| addr.port())
+                .unwrap_or(cfg.server.port);
+
             // ---- phone pairing: LAN address + a rotating session token ----
             let token = Arc::new(std::sync::RwLock::new(pairing::new_token()));
             let lan_ip = pairing::lan_ip();
-            println!(
-                "Clipper: phone pairing on http://{lan_ip}:{}/pair (token is in the QR)",
-                cfg.server.port
-            );
+            println!("Clipper: phone pairing on http://{lan_ip}:{port}/pair (token is in the QR)");
 
             // ---- system tray: Show dashboard / Settings / Show QR / Quit ----
             let show_i = MenuItem::with_id(app, "show", "Show dashboard", true, None::<&str>)?;
@@ -173,12 +237,12 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &settings_i, &qr_i, &quit_i])?;
 
-            let tray_port = cfg.server.port;
+            let tray_port = port;
             let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
                 .tooltip(format!("Clipper — {lan_ip}:{tray_port}"))
                 .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "show" => println!("tray: Show dashboard (placeholder)"),
+                    "show" => show_dashboard(app, tray_port),
                     "settings" => println!("tray: Settings (placeholder)"),
                     "qr" => show_qr_window(app, tray_port),
                     "quit" => {
@@ -237,19 +301,7 @@ pub fn run() {
                 indexer.watch().await;
             });
 
-            // ---- REST API on [server] bind/port ----
-            // Bind synchronously so a taken port fails loudly here rather than
-            // silently moving to another one.
-            let listener = match server::bind(&cfg) {
-                Ok(listener) => listener,
-                Err(e) => {
-                    eprintln!(
-                        "Clipper: cannot bind {}:{} — {e}. Another program (or another Clipper) may be using that port.",
-                        cfg.server.bind, cfg.server.port
-                    );
-                    return Err(Box::new(e));
-                }
-            };
+            // ---- REST API on the port bound above ----
             let api_state = server::AppState {
                 cfg: cfg.clone(),
                 db: Arc::clone(&index_db),
@@ -261,6 +313,9 @@ pub fn run() {
                 server::serve(listener, api_state).await;
             });
 
+            // ---- point the bundled window at the dashboard we serve ----
+            point_window_at_dashboard(app, port);
+
             // ---- keep the pairing token fresh ----
             let rotation_token = Arc::clone(&token);
             tauri::async_runtime::spawn(async move {
@@ -268,8 +323,8 @@ pub fn run() {
             });
 
             println!(
-                "Clipper: dashboard at http://{}:{}",
-                cfg.server.bind, cfg.server.port
+                "Clipper: dashboard at http://{}:{port}",
+                cfg.server.bind
             );
 
             println!(
