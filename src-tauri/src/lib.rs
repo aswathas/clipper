@@ -1,43 +1,95 @@
-// Clipper — Tauri 2 backend (HAG-2 scaffold).
+// Clipper — Tauri 2 backend.
 //
-// Scope for this slice: system tray + global hotkey + a clipboard read that
-// prints URL-shaped text to the console. The JSONL queue, vault writer and
-// Claude dispatch arrive in HAG-3.
+// Boot order: resolve config + vault, build the tray, register the global
+// hotkey, then start the queue drainer in the background.
+
+use std::sync::{Arc, Mutex};
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
+    AppHandle, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+pub mod capture;
+pub mod clock;
+pub mod config;
+pub mod drainer;
+pub mod prompts;
+pub mod queue;
+pub mod selfcheck;
+pub mod vault;
+
+use capture::CaptureOutcome;
+use config::Config;
+use drainer::Drainer;
+use vault::Detected;
+
 /// Global capture hotkey.
 const CAPTURE_HOTKEY: &str = "Ctrl+Shift+C";
+/// Tray icon id, used to look the tray up for notifications.
+const TRAY_ID: &str = "clipper";
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-/// True when the clipboard text looks like a web URL.
-fn looks_like_url(text: &str) -> bool {
-    let t = text.trim();
-    t.starts_with("http://") || t.starts_with("https://")
+/// Resolve the config, scanning for a vault only on first run.
+fn boot() -> Result<(Config, Detected), Box<dyn std::error::Error>> {
+    let path = config::config_path();
+
+    if path.exists() {
+        let cfg = Config::load(&path)?;
+        cfg.ensure_dirs()?;
+        println!("Clipper: config {}", path.display());
+        // Re-use the persisted vault; do not re-scan.
+        let detected = Detected {
+            path: cfg.vault_path(),
+            candidates: Vec::new(),
+            created: false,
+        };
+        Ok((cfg, detected))
+    } else {
+        let detected = vault::detect();
+        let cfg = Config::for_vault(&detected.path);
+        cfg.ensure_dirs()?;
+        cfg.save(&path)?;
+        println!("Clipper: wrote config {}", path.display());
+        Ok((cfg, detected))
+    }
 }
 
-/// Read the clipboard and print it when it looks like a URL.
-/// HAG-3 replaces this stub with a queue append.
-fn capture_clipboard() {
-    match arboard::Clipboard::new() {
-        Ok(mut clipboard) => match clipboard.get_text() {
-            Ok(text) => {
-                if looks_like_url(&text) {
-                    println!("clip captured: {}", text.trim());
-                }
-            }
-            Err(e) => eprintln!("clipboard: read failed: {e}"),
-        },
-        Err(e) => eprintln!("clipboard: unavailable: {e}"),
+/// Surface a message in the console and on the tray tooltip.
+fn notify_user(app: &AppHandle, message: &str) {
+    println!("{message}");
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(message));
+    }
+}
+
+fn read_clipboard() -> Option<String> {
+    arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut clipboard| clipboard.get_text().ok())
+}
+
+/// The hotkey handler: clipboard URL -> deduped queue append.
+fn on_capture(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
+    let Some(text) = read_clipboard() else {
+        return;
+    };
+
+    match capture::capture(cfg, lock, &text) {
+        Ok(CaptureOutcome::Queued { id, .. }) => {
+            println!("clip captured: {} (queued {})", text.trim(), id);
+        }
+        Ok(CaptureOutcome::AlreadySaved { host, .. }) => {
+            notify_user(app, &format!("Already saved: {host}"));
+        }
+        Ok(CaptureOutcome::NotAUrl) => {}
+        Err(e) => eprintln!("capture failed: {e}"),
     }
 }
 
@@ -55,14 +107,20 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
+            // ---- config + vault, before the tray exists ----
+            let (cfg, detected) = boot()?;
+            println!("Clipper: vault {}", cfg.vault_path().display());
+            let lock = Arc::new(Mutex::new(()));
+
             // ---- system tray: Show dashboard / Settings / Quit ----
             let show_i = MenuItem::with_id(app, "show", "Show dashboard", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &settings_i, &quit_i])?;
 
-            let mut tray = TrayIconBuilder::new()
+            let mut tray = TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
+                .tooltip("Clipper")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => println!("tray: Show dashboard (placeholder)"),
                     "settings" => println!("tray: Settings (placeholder)"),
@@ -78,13 +136,28 @@ pub fn run() {
             }
             tray.build(app)?;
 
+            if detected.created {
+                notify_user(
+                    app.handle(),
+                    &format!("Clipper: created vault at {}", detected.path.display()),
+                );
+            }
+
             // ---- global hotkey: Ctrl+Shift+C ----
+            let hotkey_cfg = cfg.clone();
+            let hotkey_lock = Arc::clone(&lock);
             app.global_shortcut()
-                .on_shortcut(CAPTURE_HOTKEY, |_app, _shortcut, event| {
+                .on_shortcut(CAPTURE_HOTKEY, move |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        capture_clipboard();
+                        on_capture(app, &hotkey_cfg, &hotkey_lock);
                     }
                 })?;
+
+            // ---- background drainer ----
+            let drainer = Arc::new(Drainer::new(cfg.clone(), lock)?);
+            tauri::async_runtime::spawn(async move {
+                drainer.run_forever().await;
+            });
 
             println!("Clipper: tray ready, global hotkey {CAPTURE_HOTKEY} registered");
 

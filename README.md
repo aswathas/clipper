@@ -3,17 +3,31 @@
 A clipboard-capture desktop app built with [Tauri 2](https://tauri.app) (Rust backend,
 vanilla HTML + JS frontend — no framework, no bundler).
 
-**This slice (HAG-2) is the scaffold:** the app starts hidden, lives in the system tray,
-and a global hotkey reads the clipboard. The capture queue, vault writer and Claude
-dispatch land in later slices. See [`SPEC.md`](./SPEC.md) for the full design.
+Capture a URL anywhere in Windows with one keystroke; Clipper queues it, hands it to
+Claude Code to summarise, and files the result as a Markdown note in your Obsidian vault.
+See [`SPEC.md`](./SPEC.md) for the full design.
 
 ## What works today
 
+- **Vault auto-detect** — on first run Clipper scans `~/Documents`, `~/ObsidianVaults`,
+  `~/Notes`, `~/repos`, `~/OneDrive/Documents` and every first-level folder of `~` for a
+  `.obsidian` directory. Exactly one vault → use it. Several → use the first and log them
+  all. None → create `~/Documents/ClipperVault`. The choice is persisted in
+  `~/.clipper/config.toml`, so later runs never re-scan.
+- **Global hotkey `Ctrl+Shift+C`** — anywhere in Windows, reads the clipboard. A URL is
+  deduped (SHA-256 of the URL, first 16 hex chars, checked against `archive.jsonl`) and
+  appended to `~/.clipper/queue/inbox.jsonl`. An already-saved URL reports
+  `Already saved: <host>` and is skipped; non-URL text is ignored.
+- **Queue drainer** — a background task that polls every 5 s *and* wakes on file change
+  (200 ms debounce). It takes up to `batch_size` items, rotates them into
+  `inbox.processing`, builds a batch prompt from `~/.clipper/prompts/extract.md`, runs the
+  configured provider, and files each returned `.md` into
+  `<vault>/Inbox/YYYY-MM-DD_HHMM_clipboard_<id>.md`.
+- **Failure handling** — a non-zero provider exit, a timeout, or stdout that is not one
+  existing staging path per input moves the batch to `deadletter.jsonl` with a reason
+  (`bad-stdout`, `timeout`, `exit-<code>`, `bad-json`) rather than retrying forever.
 - **System tray** with three menu items: *Show dashboard* (placeholder), *Settings*
   (placeholder), *Quit*.
-- **Global hotkey `Ctrl+Shift+C`** — anywhere in Windows, reads the clipboard. If the
-  text looks like a URL (`http://` / `https://`), it prints to the console:
-  `clip captured: <url>`.
 - **Single instance** — launching again focuses the existing window instead of starting
   a second copy.
 - The main window is **hidden by default**; the app is driven from the tray.
@@ -50,6 +64,10 @@ ar = "ar.exe"
 If you install the MSVC build tools later, `rustup default stable-msvc` and this
 override becomes inert.
 
+Known benign warning: every build prints
+`warning: .rsrc merge failure: multiple non-default manifests` — MinGW `ld` and
+`tauri-winres` both supply a manifest. The binary builds, links and runs.
+
 ## Build & run
 
 ```powershell
@@ -79,16 +97,58 @@ downloaded on first run.
 1. Run `npx tauri dev` (or launch the built `clipper.exe`).
 2. The window stays hidden — look for the **Clipper** tray icon.
 3. Copy any link (e.g. from a browser address bar).
-4. Press **`Ctrl+Shift+C`**. The terminal running the app prints `clip captured: <url>`.
-5. Right-click the tray icon to see *Show dashboard*, *Settings*, *Quit*.
+4. Press **`Ctrl+Shift+C`**. The terminal prints `clip captured: <url> (queued <id>)`,
+   then the drainer prints `drainer: picked=1 written=1 ...`.
+5. The note appears in `<vault>/Inbox/`. Right-click the tray icon for the menu.
+
+## Configuration
+
+`~/.clipper/config.toml` is written on first run and then left alone. Every path may use
+a leading `~`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `vault.path` | auto-detected | Obsidian vault |
+| `vault.inbox_subdir` | `Inbox` | subfolder notes are filed into |
+| `provider.claude.command` / `.args` | `claude` / `["-p"]` | the extractor to spawn |
+| `provider.claude.stdin` | `prompt-file` | `prompt-file` pipes the prompt into the child's stdin |
+| `queue.dir` | `~/.clipper/queue` | `inbox.jsonl`, `archive.jsonl`, `deadletter.jsonl` |
+| `queue.staging_dir` | `~/.clipper/staging` | batch prompts and generated notes |
+| `queue.batch_size` | `5` | items per provider run |
+| `queue.poll_interval_ms` | `5000` | drainer poll interval |
+| `queue.timeout_s` | `120` | per-batch provider timeout |
+| `server.bind` / `.port` | `127.0.0.1` / `7137` | reserved for the dashboard |
+| `prompts.extract` | `~/.clipper/prompts/extract.md` | the extraction prompt |
+
+## Self-check
+
+```powershell
+.\src-tauri\target\debug\clipper.exe --hag3-smoke
+```
+
+Runs four assertions against an isolated temp config with a faked provider (no network, no
+`claude`): three URLs become three frontmatter-valid notes, an already-archived URL is
+skipped, non-URL text is ignored, and garbage provider stdout deadletters the batch.
+Exit code `0` means every check passed.
+
+> The self-check is a flag on the real binary rather than a `tests/` target because a Rust
+> test-harness binary linking the Tauri stack cannot be loaded on this windows-gnu
+> toolchain (`STATUS_ENTRYPOINT_NOT_FOUND`), while `clipper.exe` itself loads fine. This
+> way the checks run against the code that actually ships.
 
 ## Layout
 
 ```
-src/                 vanilla HTML + CSS + JS frontend (no build step)
-src-tauri/
-  src/main.rs        thin binary entry point
-  src/lib.rs         tray, global hotkey, clipboard read
-  tauri.conf.json    product name, identifier, hidden window
-  Cargo.toml         Rust dependencies
+src/                    vanilla HTML + CSS + JS frontend (no build step)
+src-tauri/src/
+  main.rs               entry point; `--hag3-smoke` runs the self-check
+  lib.rs                Tauri wiring: boot, tray, hotkey, drainer startup
+  config.rs             ~/.clipper/config.toml schema, paths, load/save
+  vault.rs              Obsidian vault auto-detect
+  queue.rs              JSONL append/rotate, SHA-256 dedupe index
+  capture.rs            clipboard text -> deduped queue append
+  drainer.rs            batching, prompt build, provider spawn, vault write
+  prompts.rs            the default extract prompt
+  selfcheck.rs          HAG-3 self-check
+  clock.rs              UTC timestamps
 ```
