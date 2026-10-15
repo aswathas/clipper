@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * Clipper Dashboard v0.2 — Application Shell & Router
+ * Clipper Dashboard v0.2 — Application Shell & Data Store
  * ============================================================================
  */
 
@@ -30,6 +30,123 @@ const ToastManager = {
 function toast(msg, kind = "info") {
   ToastManager.add(msg, kind);
 }
+
+// Robust date formatting supporting epoch seconds (saved_at * 1000), epoch ms, and ISO strings
+function formatDate(val) {
+  if (!val && val !== 0) return "";
+  let ms;
+  if (typeof val === "number") {
+    ms = val < 1e11 ? val * 1000 : val;
+  } else if (!isNaN(Number(val)) && !String(val).includes("-") && !String(val).includes("T")) {
+    const n = Number(val);
+    ms = n < 1e11 ? n * 1000 : n;
+  } else {
+    ms = new Date(val).getTime();
+  }
+  if (isNaN(ms)) return String(val);
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+// Compute days since saved
+function getDaysSince(val) {
+  if (!val && val !== 0) return 0;
+  let ms;
+  if (typeof val === "number") {
+    ms = val < 1e11 ? val * 1000 : val;
+  } else if (!isNaN(Number(val)) && !String(val).includes("-")) {
+    const n = Number(val);
+    ms = n < 1e11 ? n * 1000 : n;
+  } else {
+    ms = new Date(val).getTime();
+  }
+  if (isNaN(ms)) return 0;
+  const diffMs = Date.now() - ms;
+  return Math.max(0, diffMs / (86400 * 1000));
+}
+
+// Mock database for offline development & tests
+const MOCK_DATA = {
+  items: [
+    {
+      id: "clip-20261015-01",
+      url: "https://tauri.app/v2/guides/",
+      type: "repo",
+      source: "Ctrl+Shift+C",
+      title: "Tauri 2.0 Architecture & Core Concepts",
+      summary: "Comprehensive guide on Tauri v2 multi-process architecture, IPC commands, and system tray integration.",
+      tags: ["rust", "tauri", "desktop"],
+      saved_at: Math.floor((Date.now() - 2 * 3600 * 1000) / 1000),
+      status: "inbox",
+      vault_path: "Inbox/Tauri 2.0 Architecture.md"
+    },
+    {
+      id: "clip-20261014-02",
+      url: "https://alpinejs.dev/start-here",
+      type: "article",
+      source: "extension",
+      title: "Alpine.js Reactive Component Model",
+      summary: "Lightweight reactive frontend framework patterns with zero build step.",
+      tags: ["javascript", "frontend"],
+      saved_at: Math.floor((Date.now() - 26 * 3600 * 1000) / 1000),
+      status: "inbox",
+      vault_path: "Inbox/Alpinejs Reactive Model.md"
+    },
+    {
+      id: "clip-20261012-03",
+      url: "file:///screenshots/arch-diagram.png",
+      type: "photo",
+      source: "Win+Shift+S",
+      title: "HAG Clipper Pipeline Diagram",
+      summary: "ASCII pipeline diagram showing queue drainer to MiniMax MCP vision path.",
+      tags: ["design", "spec"],
+      saved_at: Math.floor((Date.now() - 4 * 86400 * 1000) / 1000),
+      status: "inbox",
+      vault_path: "Inbox/HAG Clipper Pipeline Diagram.md"
+    },
+    {
+      id: "clip-20260920-04",
+      url: "https://picocss.com/docs",
+      type: "article",
+      source: "manual",
+      title: "Pico.css Minimal CSS Framework",
+      summary: "Classless and semantic CSS framework for pure HTML elements.",
+      tags: ["css", "styling"],
+      saved_at: Math.floor((Date.now() - 25 * 86400 * 1000) / 1000),
+      status: "library",
+      vault_path: "Inbox/Pico CSS Framework.md"
+    },
+    {
+      id: "clip-20260901-05",
+      url: "file:///photos/whiteboard-notes.jpg",
+      type: "photo",
+      source: "pwa",
+      title: "Whiteboard Sprint Planning Photo",
+      summary: "OCR capture of multi-agent floor sprint milestones and ticket ledger.",
+      tags: ["notes", "meeting"],
+      saved_at: Math.floor((Date.now() - 38 * 86400 * 1000) / 1000),
+      status: "library",
+      vault_path: "Inbox/Whiteboard Sprint Planning Photo.md"
+    },
+    {
+      id: "clip-20261015-06",
+      url: "https://docs.rs/rusqlite/latest/rusqlite/",
+      type: "code-error",
+      source: "clipboard",
+      title: "Rusqlite FTS5 Configuration Snippet",
+      summary: "Tokenizing and indexing schemas for full-text search with SQLite.",
+      tags: ["rust", "sqlite"],
+      saved_at: Math.floor((Date.now() - 4 * 3600 * 1000) / 1000),
+      status: "inbox",
+      vault_path: "Inbox/Rusqlite FTS5 Snippet.md"
+    }
+  ]
+};
 
 // API Client
 async function api(path, opts = {}) {
@@ -70,8 +187,7 @@ async function api(path, opts = {}) {
     return await res.text();
   } catch (err) {
     if (err.status) throw err;
-    // Network / offline error fallback
-    console.warn(`[Clipper API] Network call failed for ${path}:`, err);
+    console.warn(`[Clipper API] Network call failed for ${path}, falling back to mock:`, err);
     return mockApiHandler(path, opts);
   }
 }
@@ -79,14 +195,84 @@ async function api(path, opts = {}) {
 // Mock handler for offline UI testing and early slicing
 function mockApiHandler(path, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
+
   if (path.startsWith("/api/today")) {
-    return { items: [] };
+    const todayCutoff = Math.floor((Date.now() - 24 * 3600 * 1000) / 1000);
+    const items = MOCK_DATA.items.filter((i) => i.saved_at >= todayCutoff || i.tags.includes("urgent"));
+    return { items };
   }
-  if (path.startsWith("/api/items")) {
-    return { items: [], total: 0 };
+  if (path.startsWith("/api/items?")) {
+    const params = new URLSearchParams(path.split("?")[1] || "");
+    const q = (params.get("q") || "").toLowerCase();
+    const type = params.get("type");
+    const status = params.get("status");
+
+    let filtered = [...MOCK_DATA.items];
+    if (status) {
+      filtered = filtered.filter((i) => i.status === status);
+    }
+    if (type) {
+      filtered = filtered.filter((i) => i.type === type);
+    }
+    if (q) {
+      filtered = filtered.filter(
+        (i) =>
+          (i.title || "").toLowerCase().includes(q) ||
+          (i.summary || "").toLowerCase().includes(q) ||
+          (i.tags || []).some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    return { items: filtered, total: filtered.length };
+  }
+  if (path.match(/^\/api\/items\/[^/]+$/) && method === "GET") {
+    const id = path.split("/api/items/")[1];
+    const item = MOCK_DATA.items.find((i) => i.id === id);
+    return item || { id, title: "Item not found", summary: "", tags: [] };
+  }
+  if (path.match(/\/status$/) && method === "POST") {
+    const body = JSON.parse(opts.body || "{}");
+    const id = path.split("/")[3];
+    const item = MOCK_DATA.items.find((i) => i.id === id);
+    if (item) item.status = body.status;
+    return { ok: true };
+  }
+  if (path.match(/\/tags$/) && method === "POST") {
+    const body = JSON.parse(opts.body || "{}");
+    const id = path.split("/")[3];
+    const item = MOCK_DATA.items.find((i) => i.id === id);
+    if (item) item.tags = body.tags;
+    return { ok: true, tags: body.tags };
+  }
+  if (path === "/api/clips" && method === "POST") {
+    const body = JSON.parse(opts.body || "{}");
+    const newClip = {
+      id: `clip-${Date.now()}`,
+      url: body.url || "",
+      type: body.type || "article",
+      source: "manual",
+      title: body.url || "Manual Clip",
+      summary: "Queued for extraction and enrichment.",
+      tags: ["inbox"],
+      saved_at: Math.floor(Date.now() / 1000),
+      status: "inbox",
+      vault_path: `Inbox/${Date.now()}.md`
+    };
+    MOCK_DATA.items.unshift(newClip);
+    return { id: newClip.id, status: "queued" };
   }
   if (path.startsWith("/api/stats")) {
-    return { total: 0, by_type: {}, by_status: {}, stale_30d: 0 };
+    const by_type = {};
+    const by_status = {};
+    for (const item of MOCK_DATA.items) {
+      by_type[item.type] = (by_type[item.type] || 0) + 1;
+      by_status[item.status] = (by_status[item.status] || 0) + 1;
+    }
+    return {
+      total: MOCK_DATA.items.length,
+      by_type,
+      by_status,
+      stale_30d: MOCK_DATA.items.filter((i) => getDaysSince(i.saved_at) >= 30).length
+    };
   }
   if (path === "/healthz") {
     return "ok";
@@ -169,7 +355,6 @@ const ThemeManager = {
   init() {
     const saved = localStorage.getItem("clipper-theme") || "auto";
     this.setTheme(saved);
-    // Listen for system theme changes if set to auto
     if (window.matchMedia) {
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
         if (this.current === "auto") {
@@ -198,38 +383,432 @@ const ThemeManager = {
 };
 
 /* ============================================================================
-   Page Component Factories (Placeholders for HAG-11)
+   Global Clips Store (Optimistic Mutations & Drawer State)
    ============================================================================ */
 
+const ClipStore = {
+  activeDetailItem: null,
+  showDetailDrawer: false,
+  selectedIds: [],
+  newTagInput: "",
+
+  openDetail(item) {
+    this.activeDetailItem = JSON.parse(JSON.stringify(item));
+    this.showDetailDrawer = true;
+    this.newTagInput = "";
+  },
+
+  closeDetail() {
+    this.showDetailDrawer = false;
+    this.activeDetailItem = null;
+    this.newTagInput = "";
+  },
+
+  toggleSelect(id) {
+    const idx = this.selectedIds.indexOf(id);
+    if (idx === -1) {
+      this.selectedIds.push(id);
+    } else {
+      this.selectedIds.splice(idx, 1);
+    }
+  },
+
+  isSelected(id) {
+    return this.selectedIds.includes(id);
+  },
+
+  selectAll(items) {
+    this.selectedIds = items.map((i) => i.id);
+  },
+
+  deselectAll() {
+    this.selectedIds = [];
+  }
+};
+
+/* ============================================================================
+   Page Component Factories (HAG-13: Today / Inbox / Library)
+   ============================================================================ */
+
+// 1. TODAY PAGE COMPONENT
 function pageToday() {
   return {
     title: "Today",
-    description: "Urgent review items and recent captures needing action",
-    statusText: "Coming soon — HAG-13 will populate this"
+    description: "Urgent items and clips captured within the last 24 hours",
+    items: [],
+    loading: true,
+    filterType: "all",
+
+    async init() {
+      await this.loadItems();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const data = await api("/api/today");
+        this.items = data.items || [];
+      } catch (e) {
+        console.error("Failed loading Today items:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    filteredItems() {
+      if (this.filterType === "all") return this.items;
+      return this.items.filter((i) => i.type === this.filterType);
+    },
+
+    // Optimistic status update
+    async setStatus(id, newStatus) {
+      const prevItems = JSON.parse(JSON.stringify(this.items));
+      const target = this.items.find((i) => i.id === id);
+      if (target) target.status = newStatus;
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.status = newStatus;
+      }
+      toast(`Marked as ${newStatus}`, "saved");
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus })
+        });
+      } catch (err) {
+        this.items = prevItems;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.status = prevItems.find((i) => i.id === id)?.status || "inbox";
+        }
+        toast(`Failed to update status: ${err.message}`, "error");
+      }
+    },
+
+    // Optimistic tag additions
+    async addTag(id, tag) {
+      if (!tag || !tag.trim()) return;
+      const cleanTag = tag.trim().toLowerCase();
+      const target = this.items.find((i) => i.id === id);
+      if (!target) return;
+      if (!target.tags) target.tags = [];
+      if (target.tags.includes(cleanTag)) return;
+
+      const prevTags = [...target.tags];
+      target.tags.push(cleanTag);
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.tags = [...target.tags];
+      }
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags: target.tags })
+        });
+        toast(`Tag #${cleanTag} added`, "saved");
+      } catch (err) {
+        target.tags = prevTags;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.tags = prevTags;
+        }
+        toast(`Failed to save tag: ${err.message}`, "error");
+      }
+    },
+
+    // Optimistic tag removal
+    async removeTag(id, tagToRemove) {
+      const target = this.items.find((i) => i.id === id);
+      if (!target || !target.tags) return;
+      const prevTags = [...target.tags];
+      target.tags = target.tags.filter((t) => t !== tagToRemove);
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.tags = [...target.tags];
+      }
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags: target.tags })
+        });
+      } catch (err) {
+        target.tags = prevTags;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.tags = prevTags;
+        }
+        toast(`Failed to remove tag: ${err.message}`, "error");
+      }
+    }
   };
 }
 
+// 2. INBOX PAGE COMPONENT
 function pageInbox() {
   return {
     title: "Inbox",
-    description: "Unsorted clips awaiting processing, tagging, and filing",
-    statusText: "Coming soon — HAG-13 will populate this"
+    description: "New captures awaiting review, tagging, or filing",
+    items: [],
+    loading: true,
+    filterType: "all",
+    searchFilter: "",
+
+    async init() {
+      await this.loadItems();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const data = await api("/api/items?limit=50&offset=0&status=inbox");
+        this.items = data.items || [];
+      } catch (e) {
+        console.error("Failed loading Inbox items:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    filteredItems() {
+      let result = this.items.filter((i) => i.status !== "archived" && i.status !== "deleted");
+      if (this.filterType !== "all") {
+        result = result.filter((i) => i.type === this.filterType);
+      }
+      if (this.searchFilter) {
+        const q = this.searchFilter.toLowerCase();
+        result = result.filter(
+          (i) =>
+            (i.title || "").toLowerCase().includes(q) ||
+            (i.summary || "").toLowerCase().includes(q) ||
+            (i.tags || []).some((t) => t.toLowerCase().includes(q))
+        );
+      }
+      return result;
+    },
+
+    // Optimistic status update
+    async setStatus(id, newStatus) {
+      const prevItems = JSON.parse(JSON.stringify(this.items));
+      const target = this.items.find((i) => i.id === id);
+      if (target) target.status = newStatus;
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.status = newStatus;
+      }
+
+      // If archiving or deleting, optimistically slide out
+      if (newStatus === "archived" || newStatus === "deleted") {
+        this.items = this.items.filter((i) => i.id !== id);
+      }
+      toast(`Marked as ${newStatus}`, "saved");
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus })
+        });
+      } catch (err) {
+        this.items = prevItems;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.status = prevItems.find((i) => i.id === id)?.status || "inbox";
+        }
+        toast(`Failed to update status: ${err.message}`, "error");
+      }
+    },
+
+    // Optimistic tag additions
+    async addTag(id, tag) {
+      if (!tag || !tag.trim()) return;
+      const cleanTag = tag.trim().toLowerCase();
+      const target = this.items.find((i) => i.id === id);
+      if (!target) return;
+      if (!target.tags) target.tags = [];
+      if (target.tags.includes(cleanTag)) return;
+
+      const prevTags = [...target.tags];
+      target.tags.push(cleanTag);
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.tags = [...target.tags];
+      }
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags: target.tags })
+        });
+        toast(`Tag #${cleanTag} added`, "saved");
+      } catch (err) {
+        target.tags = prevTags;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.tags = prevTags;
+        }
+        toast(`Failed to save tag: ${err.message}`, "error");
+      }
+    },
+
+    // Optimistic tag removal
+    async removeTag(id, tagToRemove) {
+      const target = this.items.find((i) => i.id === id);
+      if (!target || !target.tags) return;
+      const prevTags = [...target.tags];
+      target.tags = target.tags.filter((t) => t !== tagToRemove);
+      if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+        ClipStore.activeDetailItem.tags = [...target.tags];
+      }
+
+      try {
+        await api(`/api/items/${encodeURIComponent(id)}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags: target.tags })
+        });
+      } catch (err) {
+        target.tags = prevTags;
+        if (ClipStore.activeDetailItem && ClipStore.activeDetailItem.id === id) {
+          ClipStore.activeDetailItem.tags = prevTags;
+        }
+        toast(`Failed to remove tag: ${err.message}`, "error");
+      }
+    },
+
+    // Bulk actions
+    async bulkArchive() {
+      const ids = [...ClipStore.selectedIds];
+      if (!ids.length) return;
+      const count = ids.length;
+      this.items = this.items.filter((i) => !ids.includes(i.id));
+      ClipStore.deselectAll();
+      toast(`Archiving ${count} clips...`, "saved");
+
+      await Promise.all(
+        ids.map((id) =>
+          api(`/api/items/${encodeURIComponent(id)}/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "archived" })
+          }).catch((e) => console.warn("Bulk archive item failed:", e))
+        )
+      );
+    },
+
+    async bulkDelete() {
+      const ids = [...ClipStore.selectedIds];
+      if (!ids.length) return;
+      const count = ids.length;
+      this.items = this.items.filter((i) => !ids.includes(i.id));
+      ClipStore.deselectAll();
+      toast(`Deleted ${count} clips`, "saved");
+
+      await Promise.all(
+        ids.map((id) =>
+          api(`/api/items/${encodeURIComponent(id)}/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "deleted" })
+          }).catch((e) => console.warn("Bulk delete item failed:", e))
+        )
+      );
+    },
+
+    async bulkTag() {
+      const ids = [...ClipStore.selectedIds];
+      if (!ids.length) return;
+      const tag = prompt("Enter tag to apply to selected clips:");
+      if (!tag || !tag.trim()) return;
+      const cleanTag = tag.trim().toLowerCase();
+
+      for (const id of ids) {
+        const item = this.items.find((i) => i.id === id);
+        if (item) {
+          if (!item.tags) item.tags = [];
+          if (!item.tags.includes(cleanTag)) item.tags.push(cleanTag);
+        }
+      }
+      ClipStore.deselectAll();
+      toast(`Tagged ${ids.length} clips with #${cleanTag}`, "saved");
+
+      await Promise.all(
+        ids.map((id) => {
+          const item = this.items.find((i) => i.id === id);
+          return api(`/api/items/${encodeURIComponent(id)}/tags`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tags: item?.tags || [cleanTag] })
+          }).catch((e) => console.warn("Bulk tag item failed:", e));
+        })
+      );
+    }
   };
 }
 
+// 3. LIBRARY PAGE COMPONENT
 function pageLibrary() {
   return {
     title: "Library",
-    description: "Archived knowledge base grouped by type, tag, and decay",
-    statusText: "Coming soon — HAG-13 will populate this"
+    description: "Knowledge vault grouped by media type with memory decay telemetry",
+    items: [],
+    loading: true,
+    groupBy: "type", // 'type' | 'decay'
+    selectedTypeFilter: "all",
+
+    async init() {
+      await this.loadItems();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const data = await api("/api/items?limit=100&offset=0");
+        this.items = data.items || [];
+      } catch (e) {
+        console.error("Failed loading Library items:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    groups() {
+      const map = {};
+      for (const item of this.items) {
+        const key = item.type || "article";
+        if (this.selectedTypeFilter !== "all" && key !== this.selectedTypeFilter) continue;
+
+        if (!map[key]) {
+          map[key] = {
+            type: key,
+            count: 0,
+            items: [],
+            lastSavedAt: null
+          };
+        }
+        map[key].items.push(item);
+        map[key].count += 1;
+
+        if (!map[key].lastSavedAt || item.saved_at > map[key].lastSavedAt) {
+          map[key].lastSavedAt = item.saved_at;
+        }
+      }
+
+      return Object.values(map).map((g) => {
+        const days = getDaysSince(g.lastSavedAt);
+        const bar = decayBar(days);
+        return {
+          ...g,
+          decayInfo: bar,
+          lastTouchedStr: formatDate(g.lastSavedAt)
+        };
+      });
+    }
   };
 }
 
+// Placeholder factories for HAG-14+
 function pageAsk() {
   return {
     title: "Ask",
     description: "Natural language synthesis and semantic vault search",
-    statusText: "Coming soon — HAG-13 will populate this"
+    statusText: "Coming soon — HAG-18 will populate this"
   };
 }
 
@@ -237,7 +816,7 @@ function pageSkills() {
   return {
     title: "Skills",
     description: "Custom extraction templates, agents, and automation workflows",
-    statusText: "Coming soon — HAG-13 will populate this"
+    statusText: "Coming soon — HAG-14 will populate this"
   };
 }
 
@@ -245,7 +824,7 @@ function pageSettings() {
   return {
     title: "Settings",
     description: "Clipper daemon configuration, vault paths, and device pairing",
-    statusText: "Coming soon — HAG-13 will populate this"
+    statusText: "Coming soon — HAG-15 & HAG-17 will populate this"
   };
 }
 
@@ -262,6 +841,7 @@ function clipperShell() {
     showQuickCaptureModal: false,
     quickCaptureUrl: "",
     toasts: ToastManager.items,
+    store: ClipStore,
 
     init() {
       ThemeManager.init();
@@ -313,12 +893,17 @@ function clipperShell() {
           target &&
           (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable);
 
-        // Escape: close any modal
+        // Escape: close any open modal or detail drawer
         if (e.key === "Escape") {
           if (this.showShortcutsModal || this.showQuickCaptureModal) {
             e.preventDefault();
             this.showShortcutsModal = false;
             this.showQuickCaptureModal = false;
+            return;
+          }
+          if (ClipStore.showDetailDrawer) {
+            e.preventDefault();
+            ClipStore.closeDetail();
             return;
           }
           if (isInputFocused) {
@@ -352,19 +937,33 @@ function clipperShell() {
           return;
         }
 
-        // 'a' -> on Inbox page, archive selected item (stub: toast 'not yet')
+        // 'a' -> on Inbox page, archive selected item(s)
         if (e.key === "a" || e.key === "A") {
           if (this.currentPage === "inbox") {
             e.preventDefault();
-            toast("not yet", "info");
+            if (ClipStore.selectedIds.length > 0) {
+              // Trigger bulk archive
+              const inboxComp = document.querySelector('[x-data*="pageInbox"]');
+              if (inboxComp && inboxComp._x_dataStack) {
+                inboxComp._x_dataStack[0].bulkArchive();
+              }
+            } else if (ClipStore.activeDetailItem) {
+              const id = ClipStore.activeDetailItem.id;
+              ClipStore.closeDetail();
+              const inboxComp = document.querySelector('[x-data*="pageInbox"]');
+              if (inboxComp && inboxComp._x_dataStack) {
+                inboxComp._x_dataStack[0].setStatus(id, "archived");
+              }
+            } else {
+              toast("No item selected to archive", "info");
+            }
           }
           return;
         }
 
-        // 'j' / 'k' -> next/prev in any list (stub for now)
+        // 'j' / 'k' -> next/prev in any list (stub)
         if (e.key === "j" || e.key === "k") {
           e.preventDefault();
-          // Stub for list traversal in HAG-13
           return;
         }
       });
@@ -389,9 +988,28 @@ function clipperShell() {
       this.showQuickCaptureModal = false;
     },
 
-    submitQuickCapture() {
-      toast("not yet", "info");
+    // Optimistic add-clip
+    async submitQuickCapture() {
+      if (!this.quickCaptureUrl || !this.quickCaptureUrl.trim()) return;
+      const url = this.quickCaptureUrl.trim();
       this.closeModals();
+
+      toast("Clip queued for processing", "saved");
+
+      try {
+        await api("/api/clips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, type: "manual" })
+        });
+        // Dispatch refresh to Inbox if mounted
+        const inboxComp = document.querySelector('[x-data*="pageInbox"]');
+        if (inboxComp && inboxComp._x_dataStack) {
+          inboxComp._x_dataStack[0].loadItems();
+        }
+      } catch (err) {
+        toast(`Failed to save clip: ${err.message}`, "error");
+      }
     },
 
     // Expose helpers to templates
@@ -401,6 +1019,10 @@ function clipperShell() {
 
     decayBar(days) {
       return decayBar(days);
+    },
+
+    formatDate(val) {
+      return formatDate(val);
     }
   };
 }
@@ -417,3 +1039,5 @@ window.api = api;
 window.toast = toast;
 window.typeIcon = typeIcon;
 window.decayBar = decayBar;
+window.formatDate = formatDate;
+window.ClipStore = ClipStore;

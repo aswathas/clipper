@@ -6,6 +6,8 @@
   <title>Clipper — Second Brain Dashboard</title>
   <!-- Pico.css from CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <!-- DOMPurify from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <!-- Custom styles & design system -->
   <link rel="stylesheet" href="styles.css">
   <!-- Alpine component & shell logic -->
@@ -134,167 +136,531 @@
     <!-- Main Dynamic Content Area (6 Pages) -->
     <main class="main-container">
       <!-- 1. TODAY PAGE -->
-      <div x-show="currentPage === 'today'" x-data="pageToday()">
+      <section x-show="currentPage === 'today'" x-data="pageToday()">
         <div class="page-header">
           <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
+            <h1>Today</h1>
+            <p>Urgent items and clips captured within the last 24 hours</p>
           </div>
+          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
         </div>
 
-        <div class="empty-placeholder">
-          <div class="icon">🌅</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
+        <!-- Filter Pills -->
+        <div class="filter-toolbar">
+          <div class="filter-pills">
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'all' }" 
+              @click="filterType = 'all'"
+            >All</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'article' }" 
+              @click="filterType = 'article'"
+            >Articles</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'repo' }" 
+              @click="filterType = 'repo'"
+            >Repos</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'photo' }" 
+              @click="filterType = 'photo'"
+            >Photos</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'code-error' }" 
+              @click="filterType = 'code-error'"
+            >Code Errors</button>
+          </div>
         </div>
 
         <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
+        <div class="skeleton-list" x-show="loading">
           <div class="skeleton-card">
             <div class="skeleton-line short"></div>
-            <div class="skeleton-line long"></div>
-            <div class="skeleton-line medium"></div>
             <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+          <div class="skeleton-card">
             <div class="skeleton-line short"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
           </div>
         </div>
-      </div>
+
+        <!-- Empty State -->
+        <div class="empty-placeholder" x-show="!loading && filteredItems().length === 0">
+          <div class="icon">🌅</div>
+          <h3>No clips for Today</h3>
+          <p>You're all caught up on urgent items.</p>
+        </div>
+
+        <!-- Clip Cards List -->
+        <div class="clip-grid" x-show="!loading && filteredItems().length > 0">
+          <template x-for="item in filteredItems()" :key="item.id">
+            <article 
+              class="clip-card" 
+              :class="{ 'selected': store.isSelected(item.id) }"
+              @click="store.openDetail(item)"
+            >
+              <input 
+                type="checkbox" 
+                class="clip-checkbox" 
+                :checked="store.isSelected(item.id)" 
+                @click.stop="store.toggleSelect(item.id)"
+                aria-label="Select clip"
+              >
+              <div class="clip-body">
+                <div class="clip-header-row">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+                    <span 
+                      class="type-badge" 
+                      :class="item.type || 'article'"
+                      x-html="typeIcon(item.type).svg + ' ' + (item.type || 'article')"
+                    ></span>
+                    <h3 class="clip-title" x-text="item.title || item.url"></h3>
+                  </div>
+                  <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
+                </div>
+                <p class="clip-summary" x-text="item.summary || 'No summary available.'"></p>
+                <div class="clip-footer">
+                  <div class="clip-tags-list">
+                    <template x-for="tag in (item.tags || [])" :key="tag">
+                      <span class="tag-badge" x-text="'#' + tag"></span>
+                    </template>
+                  </div>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <button 
+                      type="button" 
+                      class="btn-icon" 
+                      style="font-size: 0.75rem; padding: 0.15rem 0.45rem;"
+                      @click.stop="setStatus(item.id, 'archived')"
+                    >Archive</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </template>
+        </div>
+      </section>
 
       <!-- 2. INBOX PAGE -->
-      <div x-show="currentPage === 'inbox'" x-data="pageInbox()">
+      <section x-show="currentPage === 'inbox'" x-data="pageInbox()">
         <div class="page-header">
           <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
+            <h1>Inbox</h1>
+            <p>New captures awaiting review, tagging, or filing</p>
+          </div>
+          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
+        </div>
+
+        <!-- Filter Toolbar -->
+        <div class="filter-toolbar">
+          <div class="filter-pills">
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'all' }" 
+              @click="filterType = 'all'"
+            >All</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'article' }" 
+              @click="filterType = 'article'"
+            >Articles</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'repo' }" 
+              @click="filterType = 'repo'"
+            >Repos</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'photo' }" 
+              @click="filterType = 'photo'"
+            >Photos</button>
+            <button 
+              type="button"
+              class="filter-pill" 
+              :class="{ 'active': filterType === 'code-error' }" 
+              @click="filterType = 'code-error'"
+            >Errors</button>
+          </div>
+
+          <div style="max-width: 240px; width: 100%;">
+            <input 
+              type="search" 
+              placeholder="Filter inbox..." 
+              x-model="searchFilter" 
+              style="margin-bottom: 0; height: 1.9rem; font-size: 0.8rem;"
+            >
           </div>
         </div>
 
-        <div class="empty-placeholder">
-          <div class="icon">📥</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
-        </div>
-
         <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
+        <div class="skeleton-list" x-show="loading">
           <div class="skeleton-card">
             <div class="skeleton-line short"></div>
             <div class="skeleton-line full"></div>
             <div class="skeleton-line medium"></div>
-            <div class="skeleton-line long"></div>
+          </div>
+          <div class="skeleton-card">
             <div class="skeleton-line short"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
           </div>
         </div>
-      </div>
+
+        <!-- Empty State -->
+        <div class="empty-placeholder" x-show="!loading && filteredItems().length === 0">
+          <div class="icon">📥</div>
+          <h3>Inbox Zero!</h3>
+          <p>No unprocessed items in your queue.</p>
+        </div>
+
+        <!-- Clip Cards List -->
+        <div class="clip-grid" x-show="!loading && filteredItems().length > 0">
+          <template x-for="item in filteredItems()" :key="item.id">
+            <article 
+              class="clip-card" 
+              :class="{ 'selected': store.isSelected(item.id) }"
+              @click="store.openDetail(item)"
+            >
+              <input 
+                type="checkbox" 
+                class="clip-checkbox" 
+                :checked="store.isSelected(item.id)" 
+                @click.stop="store.toggleSelect(item.id)"
+                aria-label="Select clip"
+              >
+              <div class="clip-body">
+                <div class="clip-header-row">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+                    <span 
+                      class="type-badge" 
+                      :class="item.type || 'article'"
+                      x-html="typeIcon(item.type).svg + ' ' + (item.type || 'article')"
+                    ></span>
+                    <h3 class="clip-title" x-text="item.title || item.url"></h3>
+                  </div>
+                  <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
+                </div>
+                <p class="clip-summary" x-text="item.summary || 'No summary available.'"></p>
+                <div class="clip-footer">
+                  <div class="clip-tags-list">
+                    <template x-for="tag in (item.tags || [])" :key="tag">
+                      <span class="tag-badge" x-text="'#' + tag"></span>
+                    </template>
+                  </div>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <button 
+                      type="button" 
+                      class="btn-icon" 
+                      style="font-size: 0.75rem; padding: 0.15rem 0.45rem;"
+                      @click.stop="setStatus(item.id, 'archived')"
+                    >Archive</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </template>
+        </div>
+
+        <!-- Bulk Action Toolbar (Floating when items selected) -->
+        <div class="bulk-toolbar" x-show="store.selectedIds.length > 0">
+          <span style="font-weight: 600; font-size: 0.85rem;" x-text="store.selectedIds.length + ' selected'"></span>
+          <button type="button" class="btn-clip" @click="bulkArchive()">Archive</button>
+          <button type="button" class="btn-icon" @click="bulkTag()">Add Tag</button>
+          <button type="button" class="btn-icon" style="color: var(--decay-red); border-color: var(--decay-red);" @click="bulkDelete()">Delete</button>
+          <button type="button" class="btn-icon" @click="store.deselectAll()">Deselect</button>
+        </div>
+      </section>
 
       <!-- 3. LIBRARY PAGE -->
-      <div x-show="currentPage === 'library'" x-data="pageLibrary()">
+      <section x-show="currentPage === 'library'" x-data="pageLibrary()">
         <div class="page-header">
           <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
+            <h1>Library</h1>
+            <p>Knowledge vault grouped by media type with memory decay telemetry</p>
           </div>
-        </div>
-
-        <div class="empty-placeholder">
-          <div class="icon">📚</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
+          <button class="btn-icon" @click="loadItems()" title="Refresh">↻</button>
         </div>
 
         <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
+        <div class="skeleton-list" x-show="loading">
           <div class="skeleton-card">
             <div class="skeleton-line short"></div>
-            <div class="skeleton-line medium"></div>
             <div class="skeleton-line full"></div>
-            <div class="skeleton-line long"></div>
-            <div class="skeleton-line short"></div>
           </div>
         </div>
-      </div>
 
-      <!-- 4. ASK PAGE -->
-      <div x-show="currentPage === 'ask'" x-data="pageAsk()">
+        <!-- Empty State -->
+        <div class="empty-placeholder" x-show="!loading && groups().length === 0">
+          <div class="icon">📚</div>
+          <h3>Library is empty</h3>
+          <p>Clips processed or filed will appear here grouped by type.</p>
+        </div>
+
+        <!-- Groups by Type -->
+        <div x-show="!loading && groups().length > 0">
+          <template x-for="group in groups()" :key="group.type">
+            <div style="margin-bottom: 2rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.25rem;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span 
+                    class="type-badge" 
+                    :class="group.type"
+                    x-html="typeIcon(group.type).svg + ' ' + group.type"
+                  ></span>
+                  <strong x-text="'(' + group.count + ')'"></strong>
+                </div>
+                <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="'Last touched: ' + group.lastTouchedStr"></span>
+              </div>
+
+              <!-- Decay Bar -->
+              <div class="decay-bar-container" title="Decay: days since saved">
+                <div 
+                  class="decay-bar" 
+                  :class="group.decayInfo.colorClass" 
+                  :style="'width: ' + group.decayInfo.widthPercent + '%;'"
+                ></div>
+              </div>
+
+              <!-- Items in this group -->
+              <div class="clip-grid" style="margin-top: 1rem;">
+                <template x-for="item in group.items" :key="item.id">
+                  <article 
+                    class="clip-card" 
+                    :class="{ 'selected': store.isSelected(item.id) }"
+                    @click="store.openDetail(item)"
+                  >
+                    <div class="clip-body">
+                      <div class="clip-header-row">
+                        <h4 class="clip-title" x-text="item.title || item.url"></h4>
+                        <span class="clip-time" x-text="formatDate(item.saved_at * 1000)"></span>
+                      </div>
+                      <p class="clip-summary" x-text="item.summary || ''"></p>
+                      <div class="clip-footer">
+                        <div class="clip-tags-list">
+                          <template x-for="tag in (item.tags || [])" :key="tag">
+                            <span class="tag-badge" x-text="'#' + tag"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- 4. ASK PAGE (PLACEHOLDER) -->
+      <section x-show="currentPage === 'ask'" x-data="pageAsk()">
         <div class="page-header">
           <div>
             <h1 x-text="title"></h1>
             <p x-text="description"></p>
           </div>
         </div>
-
         <div class="empty-placeholder">
           <div class="icon">💬</div>
           <h3 x-text="title"></h3>
           <p x-text="statusText"></p>
         </div>
+      </section>
 
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line long"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 5. SKILLS PAGE -->
-      <div x-show="currentPage === 'skills'" x-data="pageSkills()">
+      <!-- 5. SKILLS PAGE (PLACEHOLDER) -->
+      <section x-show="currentPage === 'skills'" x-data="pageSkills()">
         <div class="page-header">
           <div>
             <h1 x-text="title"></h1>
             <p x-text="description"></p>
           </div>
         </div>
-
         <div class="empty-placeholder">
           <div class="icon">⚡</div>
           <h3 x-text="title"></h3>
           <p x-text="statusText"></p>
         </div>
+      </section>
 
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line long"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line medium"></div>
-            <div class="skeleton-line short"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 6. SETTINGS PAGE -->
-      <div x-show="currentPage === 'settings'" x-data="pageSettings()">
+      <!-- 6. SETTINGS PAGE (PLACEHOLDER) -->
+      <section x-show="currentPage === 'settings'" x-data="pageSettings()">
         <div class="page-header">
           <div>
             <h1 x-text="title"></h1>
             <p x-text="description"></p>
           </div>
         </div>
-
         <div class="empty-placeholder">
           <div class="icon">⚙</div>
           <h3 x-text="title"></h3>
           <p x-text="statusText"></p>
         </div>
+      </section>
+    </main>
 
-        <!-- Skeleton Loading Block -->
-        <div class="skeleton-list">
-          <div class="skeleton-card">
-            <div class="skeleton-line short"></div>
-            <div class="skeleton-line medium"></div>
-            <div class="skeleton-line long"></div>
-            <div class="skeleton-line full"></div>
-            <div class="skeleton-line short"></div>
+    <!-- Detail Drawer / Mobile Bottom-Sheet -->
+    <div 
+      class="detail-overlay" 
+      x-show="store.showDetailDrawer" 
+      @click.self="store.closeDetail()"
+    >
+      <aside 
+        class="detail-drawer" 
+        role="dialog" 
+        aria-modal="true" 
+        aria-labelledby="detailDrawerTitle"
+        x-show="store.showDetailDrawer"
+      >
+        <header class="detail-drawer-header">
+          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+            <span 
+              class="type-badge" 
+              :class="store.activeDetailItem?.type || 'article'"
+              x-html="typeIcon(store.activeDetailItem?.type).svg + ' ' + (store.activeDetailItem?.type || 'article')"
+            ></span>
+            <span 
+              style="font-size: 0.75rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);"
+              x-text="store.activeDetailItem?.status || 'inbox'"
+            ></span>
+          </div>
+          <button class="modal-close" @click="store.closeDetail()" aria-label="Close">&times;</button>
+        </header>
+
+        <div class="detail-drawer-body" x-if="store.activeDetailItem">
+          <div>
+            <h2 id="detailDrawerTitle" style="font-size: 1.25rem; margin: 0 0 0.5rem 0;" x-text="store.activeDetailItem.title || store.activeDetailItem.url"></h2>
+            <div style="font-size: 0.8rem; color: var(--text-muted);" x-text="'Saved: ' + formatDate(store.activeDetailItem.saved_at * 1000)"></div>
+          </div>
+
+          <div>
+            <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">Summary</h4>
+            <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);" x-text="store.activeDetailItem.summary || 'No summary available.'"></p>
+          </div>
+
+          <!-- Tag Input Component -->
+          <div>
+            <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;">Tags</h4>
+            <div class="tag-input-container">
+              <template x-for="t in (store.activeDetailItem.tags || [])" :key="t">
+                <span class="tag-chip">
+                  <span x-text="'#' + t"></span>
+                  <span 
+                    class="tag-chip-remove" 
+                    @click="
+                      store.activeDetailItem.tags = store.activeDetailItem.tags.filter(itemTag => itemTag !== t);
+                      api('/api/items/' + encodeURIComponent(store.activeDetailItem.id) + '/tags', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tags: store.activeDetailItem.tags })
+                      });
+                      toast('Tag removed', 'saved');
+                    "
+                  >&times;</span>
+                </span>
+              </template>
+              <input 
+                type="text" 
+                class="tag-input-field" 
+                placeholder="+ add tag (Enter)..." 
+                x-model="store.newTagInput"
+                @keydown.enter.prevent="
+                  if (store.newTagInput && store.newTagInput.trim()) {
+                    const clean = store.newTagInput.trim().toLowerCase();
+                    if (!store.activeDetailItem.tags) store.activeDetailItem.tags = [];
+                    if (!store.activeDetailItem.tags.includes(clean)) {
+                      store.activeDetailItem.tags.push(clean);
+                      api('/api/items/' + encodeURIComponent(store.activeDetailItem.id) + '/tags', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tags: store.activeDetailItem.tags })
+                      });
+                      toast('Tag added', 'saved');
+                    }
+                    store.newTagInput = '';
+                  }
+                "
+              >
+            </div>
+          </div>
+
+          <!-- Vault Path & Source Link -->
+          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; background: var(--bg-surface); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
+            <div>
+              <strong>Obsidian Vault:</strong>
+              <code style="word-break: break-all;" x-text="store.activeDetailItem.vault_path || 'Inbox/'"></code>
+            </div>
+            <template x-if="store.activeDetailItem.url">
+              <div>
+                <strong>Source:</strong>
+                <a :href="store.activeDetailItem.url" target="_blank" rel="noopener noreferrer" style="word-break: break-all;" x-text="store.activeDetailItem.url"></a>
+              </div>
+            </template>
           </div>
         </div>
-      </div>
-    </main>
+
+        <footer class="detail-drawer-footer" x-if="store.activeDetailItem">
+          <div style="display: flex; gap: 0.5rem;">
+            <button 
+              type="button" 
+              class="btn-clip" 
+              @click="
+                const id = store.activeDetailItem.id;
+                store.activeDetailItem.status = 'archived';
+                api('/api/items/' + encodeURIComponent(id) + '/status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'archived' })
+                });
+                toast('Archived clip', 'saved');
+                store.closeDetail();
+              "
+            >Archive</button>
+            <button 
+              type="button" 
+              class="btn-icon" 
+              @click="
+                const id = store.activeDetailItem.id;
+                store.activeDetailItem.status = 'library';
+                api('/api/items/' + encodeURIComponent(id) + '/status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'library' })
+                });
+                toast('Filed to Library', 'saved');
+              "
+            >Library</button>
+          </div>
+          <button 
+            type="button" 
+            class="btn-icon" 
+            style="color: var(--decay-red); border-color: var(--decay-red);" 
+            @click="
+              const id = store.activeDetailItem.id;
+              api('/api/items/' + encodeURIComponent(id) + '/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'deleted' })
+              });
+              toast('Deleted clip', 'saved');
+              store.closeDetail();
+            "
+          >Delete</button>
+        </footer>
+      </aside>
+    </div>
 
     <!-- Quick Capture Modal Stub -->
     <div 

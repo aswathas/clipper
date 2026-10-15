@@ -111,7 +111,7 @@ body {
 .top-nav {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -294,6 +294,7 @@ body {
   margin: 0 auto;
   padding: 1.5rem;
   min-height: calc(100vh - 65px);
+  position: relative;
 }
 
 .page-header {
@@ -316,6 +317,146 @@ body {
   margin: 0.25rem 0 0 0;
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+/* Filter & Controls Toolbar */
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filter-pills {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.filter-pill.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Clip Card Component
+   ========================================================================== */
+
+.clip-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.clip-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.clip-card:hover {
+  border-color: var(--border-focus);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.clip-card.selected {
+  background-color: var(--bg-surface);
+  border-color: var(--accent-primary);
+}
+
+.clip-checkbox {
+  margin-top: 0.25rem;
+  cursor: pointer;
+}
+
+.clip-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.clip-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.clip-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clip-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.clip-summary {
+  margin: 0.25rem 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.clip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.clip-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tag-badge {
+  font-size: 0.7rem;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
 }
 
 /* ==========================================================================
@@ -397,10 +538,11 @@ body {
 
 .decay-bar-container {
   width: 100%;
-  height: 4px;
+  height: 5px;
   background-color: var(--border-color);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
+  margin-top: 0.35rem;
 }
 
 .decay-bar {
@@ -451,6 +593,183 @@ body {
   width: 14px;
   height: 14px;
   vertical-align: middle;
+}
+
+/* ==========================================================================
+   Detail Drawer & Mobile Bottom Sheet
+   ========================================================================== */
+
+.detail-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--modal-backdrop);
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detail-drawer {
+  background-color: var(--bg-card);
+  width: 100%;
+  max-width: 520px;
+  height: 100vh;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-color);
+  animation: drawer-in 0.25s ease-out;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.detail-drawer-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detail-drawer-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text-primary);
+}
+
+.detail-drawer-body {
+  padding: 1.25rem;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.detail-drawer-footer {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background-color: var(--bg-surface);
+}
+
+/* Mobile Bottom-Sheet (<900px) */
+@media (max-width: 900px) {
+  .detail-overlay {
+    align-items: flex-end;
+  }
+  .detail-drawer {
+    max-width: 100%;
+    height: auto;
+    max-height: 85vh;
+    border-radius: 16px 16px 0 0;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    animation: sheet-up 0.25s ease-out;
+  }
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* ==========================================================================
+   Tag Input Component
+   ========================================================================== */
+
+.tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-primary);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.8rem;
+}
+
+.tag-chip-remove {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.tag-chip-remove:hover {
+  color: var(--decay-red);
+}
+
+.tag-input-field {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0.2rem !important;
+  height: auto !important;
+  font-size: 0.85rem !important;
+  color: var(--text-primary) !important;
+  flex: 1;
+  min-width: 80px;
+}
+
+/* ==========================================================================
+   Bulk-Action Toolbar (Bottom Floating)
+   ========================================================================== */
+
+.bulk-toolbar {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--toast-bg);
+  color: var(--toast-text);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  z-index: 30;
+  animation: toolbar-in 0.2s ease-out;
+}
+
+@keyframes toolbar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 15px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.bulk-toolbar button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+  margin-bottom: 0;
+  border-radius: 4px;
 }
 
 /* ==========================================================================
