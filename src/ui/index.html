@@ -467,18 +467,66 @@
         </div>
       </section>
 
-      <!-- 4. ASK PAGE (PLACEHOLDER) -->
+      <!-- 4. ASK PAGE (HAG-18) -->
       <section x-show="currentPage === 'ask'" x-data="pageAsk()">
         <div class="page-header">
           <div>
             <h1 x-text="title"></h1>
             <p x-text="description"></p>
           </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span class="type-badge article" style="font-size: 0.75rem;">Engine: Claude Code CLI</span>
+          </div>
         </div>
-        <div class="empty-placeholder">
-          <div class="icon">💬</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
+
+        <!-- Prompt Suggestions -->
+        <div class="prompt-suggestions">
+          <template x-for="s in suggestions" :key="s">
+            <button type="button" class="suggestion-pill" @click="sendSuggestion(s)" x-text="s"></button>
+          </template>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-layout">
+          <!-- Messages Box -->
+          <div class="chat-messages" id="chatMessagesBox">
+            <template x-for="m in messages" :key="m.id">
+              <div class="chat-bubble" :class="m.role">
+                <div class="chat-bubble-meta">
+                  <span style="font-weight: 600;" x-text="m.role === 'user' ? 'You' : 'Second Brain (Claude)'"></span>
+                  <span x-text="new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></span>
+                </div>
+                <div class="chat-bubble-content" x-html="renderBubble(m.content)"></div>
+                <span 
+                  class="streaming-cursor" 
+                  x-show="isStreaming && m.role === 'assistant' && m === messages[messages.length - 1]"
+                ></span>
+              </div>
+            </template>
+          </div>
+
+          <!-- Chat Input Bar with AbortController -->
+          <div class="chat-input-bar">
+            <textarea 
+              x-model="inputText" 
+              placeholder="Ask about your clips, notes, or patterns... (Enter to send, Shift+Enter for newline)"
+              rows="1"
+              @keydown.enter.prevent="if (!$event.shiftKey) sendMessage()"
+            ></textarea>
+            <button 
+              type="button" 
+              class="btn-clip" 
+              :disabled="isStreaming || !inputText.trim()" 
+              @click="sendMessage()"
+            >Send</button>
+            <button 
+              type="button" 
+              class="btn-icon" 
+              style="color: var(--decay-red); border-color: var(--decay-red);" 
+              x-show="isStreaming" 
+              @click="abortStream()"
+            >Stop</button>
+          </div>
         </div>
       </section>
 
@@ -1053,7 +1101,24 @@
           <button class="modal-close" @click="store.closeDetail()" aria-label="Close">&times;</button>
         </header>
 
-        <div class="detail-drawer-body" x-if="store.activeDetailItem">
+        <!-- Side-Panel Tabs (Details vs Chat with Clip) (HAG-18) -->
+        <nav class="drawer-tabs">
+          <button 
+            type="button" 
+            class="drawer-tab-btn" 
+            :class="{ 'active': store.drawerTab === 'details' }" 
+            @click="store.drawerTab = 'details'"
+          >Details</button>
+          <button 
+            type="button" 
+            class="drawer-tab-btn" 
+            :class="{ 'active': store.drawerTab === 'chat' }" 
+            @click="store.drawerTab = 'chat'"
+          >Chat with Clip</button>
+        </nav>
+
+        <!-- 1. Clip Details Tab Body -->
+        <div class="detail-drawer-body" x-if="store.activeDetailItem" x-show="store.drawerTab === 'details'">
           <div>
             <h2 id="detailDrawerTitle" style="font-size: 1.25rem; margin: 0 0 0.5rem 0;" x-text="store.activeDetailItem.title || store.activeDetailItem.url"></h2>
             <div style="font-size: 0.8rem; color: var(--text-muted);" x-text="'Saved: ' + formatDate(store.activeDetailItem.saved_at * 1000)"></div>
@@ -1122,6 +1187,52 @@
                 <a :href="store.activeDetailItem.url" target="_blank" rel="noopener noreferrer" style="word-break: break-all;" x-text="store.activeDetailItem.url"></a>
               </div>
             </template>
+          </div>
+        </div>
+
+        <!-- 2. Side-Panel Chat View (HAG-18) -->
+        <div 
+          class="detail-drawer-body" 
+          x-if="store.activeDetailItem" 
+          x-show="store.drawerTab === 'chat'" 
+          style="display: flex; flex-direction: column; height: 100%; padding: 0;"
+        >
+          <div class="chat-messages" style="flex: 1; padding: 1rem;" id="clipChatBox">
+            <template x-for="m in store.getClipMessages()" :key="m.id">
+              <div class="chat-bubble" :class="m.role" style="font-size: 0.85rem; max-width: 90%;">
+                <div class="chat-bubble-meta">
+                  <span style="font-weight: 600;" x-text="m.role === 'user' ? 'You' : 'Clip Assistant'"></span>
+                  <span x-text="new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></span>
+                </div>
+                <div class="chat-bubble-content" x-html="typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(marked.parse(m.content || '')) : m.content"></div>
+                <span 
+                  class="streaming-cursor" 
+                  x-show="store.clipChatStreaming && m.role === 'assistant' && m === store.getClipMessages()[store.getClipMessages().length - 1]"
+                ></span>
+              </div>
+            </template>
+          </div>
+
+          <div class="chat-input-bar">
+            <textarea 
+              x-model="store.clipChatInput" 
+              placeholder="Ask question about this clip..."
+              rows="1"
+              @keydown.enter.prevent="if (!$event.shiftKey) store.sendClipChatMessage()"
+            ></textarea>
+            <button 
+              type="button" 
+              class="btn-clip" 
+              :disabled="store.clipChatStreaming || !store.clipChatInput.trim()" 
+              @click="store.sendClipChatMessage()"
+            >Send</button>
+            <button 
+              type="button" 
+              class="btn-icon" 
+              style="color: var(--decay-red); border-color: var(--decay-red);" 
+              x-show="store.clipChatStreaming" 
+              @click="store.abortClipChat()"
+            >Stop</button>
           </div>
         </div>
 

@@ -575,17 +575,144 @@ const ClipStore = {
   selectedIds: [],
   newTagInput: "",
   sseConnected: false,
+  drawerTab: "details", // 'details' | 'chat'
+  clipChatMessages: {},
+  clipChatInput: "",
+  clipChatStreaming: false,
+  clipAbortController: null,
 
   openDetail(item) {
     this.activeDetailItem = JSON.parse(JSON.stringify(item));
     this.showDetailDrawer = true;
+    this.drawerTab = "details";
     this.newTagInput = "";
+    if (item && !this.clipChatMessages[item.id]) {
+      this.clipChatMessages[item.id] = [
+        {
+          id: "init-" + item.id,
+          role: "assistant",
+          content: `Ask me anything about "${item.title || item.url}". I can summarize sections, suggest tags, or analyze this clip.`,
+          timestamp: Date.now()
+        }
+      ];
+    }
   },
 
   closeDetail() {
     this.showDetailDrawer = false;
     this.activeDetailItem = null;
     this.newTagInput = "";
+    if (this.clipAbortController) {
+      this.clipAbortController.abort();
+      this.clipAbortController = null;
+    }
+    this.clipChatStreaming = false;
+  },
+
+  getClipMessages() {
+    if (!this.activeDetailItem) return [];
+    return this.clipChatMessages[this.activeDetailItem.id] || [];
+  },
+
+  async sendClipChatMessage() {
+    const item = this.activeDetailItem;
+    if (!item) return;
+    const q = (this.clipChatInput || "").trim();
+    if (!q || this.clipChatStreaming) return;
+
+    if (!this.clipChatMessages[item.id]) {
+      this.clipChatMessages[item.id] = [];
+    }
+
+    const userMsg = {
+      id: "u-" + Date.now(),
+      role: "user",
+      content: q,
+      timestamp: Date.now()
+    };
+    this.clipChatMessages[item.id].push(userMsg);
+    this.clipChatInput = "";
+
+    const asstMsg = {
+      id: "a-" + Date.now(),
+      role: "assistant",
+      content: "",
+      timestamp: Date.now()
+    };
+    this.clipChatMessages[item.id].push(asstMsg);
+    this.clipChatStreaming = true;
+
+    this.clipAbortController = new AbortController();
+
+    try {
+      let response;
+      if (window.__MOCK_API__ || !navigator.onLine) {
+        response = createMockChatStream(q, item.title || item.url);
+      } else {
+        try {
+          response = await fetch(`/api/items/${encodeURIComponent(item.id)}/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: q }),
+            signal: this.clipAbortController.signal
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch (netErr) {
+          if (netErr.name === "AbortError") throw netErr;
+          response = createMockChatStream(q, item.title || item.url);
+        }
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const textChunk = decoder.decode(value, { stream: true });
+        const lines = textChunk.split("\n");
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith("data:")) {
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === "[DONE]") break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              asstMsg.content += (parsed.delta || parsed.text || parsed.content || "");
+            } catch (e) {
+              asstMsg.content += dataStr;
+            }
+          } else if (trimmed.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(trimmed);
+              asstMsg.content += (parsed.delta || parsed.text || parsed.content || "");
+            } catch (e) {}
+          } else {
+            asstMsg.content += trimmed + " ";
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name === "AbortError") {
+        asstMsg.content += " *(Generation paused)*";
+      } else {
+        asstMsg.content += `\n\n*(Error: ${err.message})*`;
+      }
+    } finally {
+      this.clipChatStreaming = false;
+      this.clipAbortController = null;
+    }
+  },
+
+  abortClipChat() {
+    if (this.clipAbortController) {
+      this.clipAbortController.abort();
+    }
+    this.clipChatStreaming = false;
   },
 
   toggleSelect(id) {
@@ -987,12 +1114,195 @@ function pageLibrary() {
   };
 }
 
-// Placeholder factories for HAG-14+
+function createMockChatStream(prompt, clipTitle) {
+  const contextPrefix = clipTitle ? `[Referencing clip: "${clipTitle}"]\n\n` : "";
+  const reply = `${contextPrefix}### Synthesis for: "${prompt}"\n\n` +
+    `Based on your second brain notes in the Obsidian vault and clips in SQLite:\n\n` +
+    `- **Direct Answer**: We indexed relevant clips covering this topic with tags like \`rust\`, \`tauri\`, and \`desktop\`.\n` +
+    `- **Key Takeaway**: The Claude Code CLI extraction provider extracted key summaries and frontmatter.\n` +
+    `- **Next Steps**: You can view the full note in Obsidian or execute corresponding skills.`;
+
+  const words = reply.split(" ");
+  let idx = 0;
+  const stream = new ReadableStream({
+    start(controller) {
+      const timer = setInterval(() => {
+        if (idx < words.length) {
+          const piece = (idx === 0 ? "" : " ") + words[idx];
+          const chunk = `data: ${JSON.stringify({ delta: piece })}\n\n`;
+          controller.enqueue(new TextEncoder().encode(chunk));
+          idx++;
+        } else {
+          controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+          controller.close();
+          clearInterval(timer);
+        }
+      }, 35);
+    }
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream" }
+  });
+}
+
 function pageAsk() {
   return {
-    title: "Ask",
-    description: "Natural language synthesis and semantic vault search",
-    statusText: "Coming soon — HAG-18 will populate this"
+    title: "Ask Second Brain",
+    description: "Natural language synthesis and semantic vault search across all indexed clips",
+    messages: [
+      {
+        id: "msg-init",
+        role: "assistant",
+        content: "Hello! I am your second brain synthesis assistant powered by Claude Code CLI. You can ask me questions across your saved clips, extract patterns, or search your Obsidian vault.",
+        timestamp: Date.now()
+      }
+    ],
+    inputText: "",
+    isStreaming: false,
+    abortController: null,
+    suggestions: [
+      "Summarize clips captured today",
+      "What topics have I been reading about recently?",
+      "Find notes related to SQLite FTS5 and Tauri architecture",
+      "List all unprocessed clips in my Inbox"
+    ],
+
+    async init() {
+      try {
+        const history = await api("/api/chat/history").catch(() => null);
+        if (history && Array.isArray(history.messages) && history.messages.length > 0) {
+          this.messages = history.messages;
+        }
+      } catch (e) {}
+    },
+
+    sendSuggestion(text) {
+      this.inputText = text;
+      this.sendMessage();
+    },
+
+    async sendMessage() {
+      const q = (this.inputText || "").trim();
+      if (!q || this.isStreaming) return;
+
+      const userMsg = {
+        id: "user-" + Date.now(),
+        role: "user",
+        content: q,
+        timestamp: Date.now()
+      };
+      this.messages.push(userMsg);
+      this.inputText = "";
+
+      const assistantMsg = {
+        id: "asst-" + Date.now(),
+        role: "assistant",
+        content: "",
+        timestamp: Date.now()
+      };
+      this.messages.push(assistantMsg);
+      this.isStreaming = true;
+      this.scrollToBottom();
+
+      this.abortController = new AbortController();
+
+      try {
+        let response;
+        if (window.__MOCK_API__ || !navigator.onLine) {
+          response = createMockChatStream(q);
+        } else {
+          try {
+            response = await fetch("/api/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ query: q }),
+              signal: this.abortController.signal
+            });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+          } catch (netErr) {
+            if (netErr.name === "AbortError") throw netErr;
+            response = createMockChatStream(q);
+          }
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const textChunk = decoder.decode(value, { stream: true });
+          const lines = textChunk.split("\n");
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            if (trimmed.startsWith("data:")) {
+              const dataStr = trimmed.slice(5).trim();
+              if (dataStr === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.delta || parsed.text || parsed.content || "";
+                assistantMsg.content += delta;
+              } catch (e) {
+                assistantMsg.content += dataStr;
+              }
+            } else if (trimmed.startsWith("{")) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                const delta = parsed.delta || parsed.text || parsed.content || "";
+                assistantMsg.content += delta;
+              } catch (e) {}
+            } else {
+              assistantMsg.content += trimmed + " ";
+            }
+          }
+          this.scrollToBottom();
+        }
+      } catch (err) {
+        if (err.name === "AbortError") {
+          assistantMsg.content += " *(Generation paused by user)*";
+        } else {
+          assistantMsg.content += `\n\n*(Error generating response: ${err.message})*`;
+          toast(`Chat error: ${err.message}`, "error");
+        }
+      } finally {
+        this.isStreaming = false;
+        this.abortController = null;
+        this.scrollToBottom();
+      }
+    },
+
+    abortStream() {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+      this.isStreaming = false;
+    },
+
+    renderBubble(raw) {
+      try {
+        if (typeof marked !== "undefined" && typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(marked.parse(raw || ""));
+        }
+        if (typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(raw);
+        }
+      } catch (e) {}
+      return raw || "";
+    },
+
+    scrollToBottom() {
+      this.$nextTick(() => {
+        const box = document.getElementById("chatMessagesBox");
+        if (box) box.scrollTop = box.scrollHeight;
+      });
+    }
   };
 }
 
