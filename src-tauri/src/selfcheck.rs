@@ -16,7 +16,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::Duration,
 };
+
+use serde_json::Value;
 
 use crate::{
     capture::{self, CaptureOutcome},
@@ -274,8 +277,8 @@ fn garbage_stdout_deadletters() -> Result<(), String> {
     Ok(())
 }
 
-/// Run every check; returns a process exit code.
-pub fn run() -> i32 {
+/// Run every HAG-3 check; returns a process exit code.
+pub fn run_hag3() -> i32 {
     let checks: [(&str, fn() -> Result<(), String>); 4] = [
         (
             "three_urls_become_three_notes_with_frontmatter",
@@ -305,4 +308,368 @@ pub fn run() -> i32 {
         println!("hag3 self-check: {failed} FAILED");
         1
     }
+}
+
+// ========================================================== HAG-4 self-check
+
+/// HAG-4: SQLite index, FTS5 search, and the REST API.
+pub fn run_hag4() -> i32 {
+    println!("hag4 self-check");
+    let mut failed = 0;
+    match hag4_rest_api() {
+        Ok(()) => println!("  PASS hag4_rest_api"),
+        Err(message) => {
+            failed += 1;
+            println!("  FAIL hag4_rest_api: {message}");
+        }
+    }
+
+    if failed == 0 {
+        println!("hag4 self-check: OK (1 check)");
+        0
+    } else {
+        println!("hag4 self-check: {failed} FAILED");
+        1
+    }
+}
+
+/// Index three notes by *watching* the vault, serve the API on a random port,
+/// and exercise every route over real HTTP.
+fn hag4_rest_api() -> Result<(), String> {
+    use crate::{db, server, vaultwatch};
+
+    let root = std::env::temp_dir().join(format!("clipper-hag4-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let mut cfg = Config::default();
+    let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+    cfg.vault.path = temp(root.join("Vault"));
+    // Every path must be inside the temp root, or the check writes into the
+    // user's real ~/.clipper.
+    cfg.queue.dir = temp(root.join("queue"));
+    cfg.queue.staging_dir = temp(root.join("staging"));
+    cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+    cfg.server.bind = "127.0.0.1".into();
+    cfg.server.port = 0;
+    cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+    // Three notes. Only the first mentions "rust", so q=rust must return one.
+    let notes: [(&str, &str, &str, &str); 3] = [
+        ("aaa11111", "Rust ownership explained", "https://rust.example/1", "rust"),
+        ("bbb22222", "Go routines", "https://go.example/2", "go"),
+        ("ccc33333", "Writing notes", "https://notes.example/3", "notes"),
+    ];
+
+    let index_db: db::Db = Arc::new(Mutex::new(
+        db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+    ));
+    let indexer = Arc::new(vaultwatch::Indexer::new(cfg.clone(), Arc::clone(&index_db)));
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+
+    let state = server::AppState {
+        cfg: cfg.clone(),
+        db: Arc::clone(&index_db),
+        queue_lock: Arc::new(Mutex::new(())),
+    };
+
+    let ready = indexer.ready_flag();
+
+    // Server + watcher on their own runtime so this thread can block on HTTP.
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        runtime.block_on(async move {
+            tokio::spawn(indexer.watch());
+            server::serve(listener, state).await;
+        });
+    });
+
+    wait_for_server(port)?;
+
+    // Wait for the startup scan to finish *before* writing, otherwise the scan
+    // would do the indexing and this would not prove the file-watch path.
+    let mut watching = false;
+    for _ in 0..100 {
+        if ready.load(std::sync::atomic::Ordering::SeqCst) {
+            watching = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !watching {
+        return Err("the vault watcher never became ready".into());
+    }
+
+    // The vault is empty at this point, so anything indexed from here on proves
+    // the live file-watch path.
+    for (id, title, url, tag) in notes {
+        let body = format!(
+            "---\ntype: article\nsource: example.com\ntitle: {title}\nurl: {url}\n\
+             saved_at: 2026-01-01T12:00:00Z\nsummary: A summary.\ntags: [{tag}]\n---\n\n# {title}\n"
+        );
+        fs::write(
+            cfg.vault_inbox().join(format!("2026-01-01_1200_clipboard_{id}.md")),
+            body,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Give the watcher its 1s to ingest (it debounces 500ms).
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // ---- GET /api/items ----
+    let (status, body) = http(port, "GET", "/api/items", None)?;
+    if status != 200 {
+        return Err(format!("GET /api/items -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| format!("{e}: {body}"))?;
+    let items = payload["items"].as_array().cloned().unwrap_or_default();
+    if items.len() != 3 {
+        return Err(format!("expected 3 items, got {} ({body})", items.len()));
+    }
+    if payload["total"].as_i64() != Some(3) {
+        return Err(format!("total = {}", payload["total"]));
+    }
+    for field in ["id", "url", "saved_at", "status", "tags"] {
+        if items[0].get(field).is_none() {
+            return Err(format!("item missing `{field}`: {}", items[0]));
+        }
+    }
+    if items[0]["status"] != "inbox" {
+        return Err(format!("freshly indexed status = {}", items[0]["status"]));
+    }
+    if items[0]["tags"][0] != "rust" && items[0]["tags"][0] != "go" && items[0]["tags"][0] != "notes" {
+        return Err(format!("tags did not round-trip: {}", items[0]["tags"]));
+    }
+
+    // ---- GET /api/items/:id ----
+    let (status, body) = http(port, "GET", "/api/items/aaa11111", None)?;
+    if status != 200 {
+        return Err(format!("GET /api/items/aaa11111 -> {status} {body}"));
+    }
+    let one: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if one["title"] != "Rust ownership explained" {
+        return Err(format!("title = {}", one["title"]));
+    }
+    let (status, _) = http(port, "GET", "/api/items/nope", None)?;
+    if status != 404 {
+        return Err(format!("unknown id -> {status}, expected 404"));
+    }
+
+    // ---- GET /api/items?q=rust ----
+    let (status, body) = http(port, "GET", "/api/items?q=rust", None)?;
+    if status != 200 {
+        return Err(format!("GET /api/items?q=rust -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let hits = payload["items"].as_array().map(Vec::len).unwrap_or(0);
+    if hits != 1 {
+        return Err(format!("q=rust returned {hits}, expected 1 ({body})"));
+    }
+    if payload["items"][0]["id"] != "aaa11111" {
+        return Err(format!("q=rust matched {}", payload["items"][0]["id"]));
+    }
+
+    // ---- GET /api/today ----
+    let (status, body) = http(port, "GET", "/api/today", None)?;
+    if status != 200 {
+        return Err(format!("GET /api/today -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let today = payload["items"].as_array().map(Vec::len).unwrap_or(0);
+    if today > 3 {
+        return Err(format!("today returned {today}, expected <= 3"));
+    }
+    if today != 3 {
+        return Err(format!("today returned {today}, expected 3 inbox items ({body})"));
+    }
+
+    // ---- POST status, valid and invalid ----
+    let (status, body) = http(
+        port,
+        "POST",
+        "/api/items/aaa11111/status",
+        Some(r#"{"status":"done"}"#),
+    )?;
+    if status != 200 {
+        return Err(format!("POST status -> {status} {body}"));
+    }
+    let (status, _) = http(
+        port,
+        "POST",
+        "/api/items/aaa11111/status",
+        Some(r#"{"status":"bogus"}"#),
+    )?;
+    if status != 400 {
+        return Err(format!("invalid status -> {status}, expected 400"));
+    }
+    let (_, body) = http(port, "GET", "/api/items?status=done", None)?;
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if payload["total"].as_i64() != Some(1) {
+        return Err(format!("status filter total = {}", payload["total"]));
+    }
+
+    // ---- POST tags ----
+    let (status, body) = http(
+        port,
+        "POST",
+        "/api/items/bbb22222/tags",
+        Some(r#"{"tags":["alpha","beta"]}"#),
+    )?;
+    if status != 200 {
+        return Err(format!("POST tags -> {status} {body}"));
+    }
+    let (_, body) = http(port, "GET", "/api/items/bbb22222", None)?;
+    let item: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if item["tags"].as_array().map(Vec::len) != Some(2) {
+        return Err(format!("tags = {}", item["tags"]));
+    }
+    let (status, body) = http(port, "GET", "/api/items?tag=beta", None)?;
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if payload["total"].as_i64() != Some(1) {
+        return Err(format!("tag filter total = {} ({status})", payload["total"]));
+    }
+
+    // ---- POST /api/clips ----
+    let (status, body) = http(
+        port,
+        "POST",
+        "/api/clips",
+        Some(r#"{"url":"https://manual.example/9"}"#),
+    )?;
+    if status != 200 {
+        return Err(format!("POST /api/clips -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if payload["status"] != "queued" {
+        return Err(format!("clip status = {}", payload["status"]));
+    }
+    if payload["id"].as_str().map(str::is_empty).unwrap_or(true) {
+        return Err("clip returned no id".into());
+    }
+    let queued = queue::read_lines(&cfg.inbox_jsonl()).map_err(|e| e.to_string())?;
+    if queued.len() != 1 {
+        return Err(format!("inbox.jsonl has {} lines, expected 1", queued.len()));
+    }
+    let (status, _) = http(port, "POST", "/api/clips", Some(r#"{"url":"not a url"}"#))?;
+    if status != 400 {
+        return Err(format!("bad url -> {status}, expected 400"));
+    }
+
+    // ---- GET /api/stats ----
+    let (status, body) = http(port, "GET", "/api/stats", None)?;
+    if status != 200 {
+        return Err(format!("GET /api/stats -> {status} {body}"));
+    }
+    let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    if payload["total"].as_i64() != Some(3) {
+        return Err(format!("stats.total = {}", payload["total"]));
+    }
+    if payload["by_type"]["article"].as_i64() != Some(3) {
+        return Err(format!("stats.by_type = {}", payload["by_type"]));
+    }
+    if payload.get("stale_30d").is_none() {
+        return Err("stats is missing stale_30d".into());
+    }
+
+    // ---- healthz + the dashboard the API serves ----
+    let (status, body) = http(port, "GET", "/healthz", None)?;
+    if status != 200 || body.trim() != "ok" {
+        return Err(format!("/healthz -> {status} {body:?}"));
+    }
+    let (status, body) = http(port, "GET", "/", None)?;
+    if status != 200 {
+        return Err(format!("GET / -> {status}"));
+    }
+    if !body.to_ascii_lowercase().contains("<html") {
+        return Err("dashboard response did not look like HTML".into());
+    }
+
+    Ok(())
+}
+
+/// One blocking HTTP request over a real socket.
+fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<(u16, String), String> {
+    use std::io::{Read, Write};
+
+    let mut stream =
+        std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .ok();
+
+    let mut request =
+        format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
+    if let Some(body) = body {
+        request.push_str("Content-Type: application/json\r\n");
+        request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    }
+    request.push_str("\r\n");
+    if let Some(body) = body {
+        request.push_str(body);
+    }
+
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).map_err(|e| e.to_string())?;
+    let raw = String::from_utf8_lossy(&raw).into_owned();
+
+    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((raw.as_str(), ""));
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        dechunk(body)
+    } else {
+        body.to_string()
+    };
+
+    Ok((status, body))
+}
+
+/// Minimal HTTP/1.1 chunked decoding, in case a body arrives without Content-Length.
+fn dechunk(body: &str) -> String {
+    let mut out = String::new();
+    let mut rest = body;
+    loop {
+        let Some(position) = rest.find("\r\n") else { break };
+        let Ok(size) = usize::from_str_radix(rest[..position].trim(), 16) else {
+            break;
+        };
+        if size == 0 {
+            break;
+        }
+        let start = position + 2;
+        if rest.len() < start + size {
+            break;
+        }
+        out.push_str(&rest[start..start + size]);
+        rest = &rest[start + size..];
+        if let Some(stripped) = rest.strip_prefix("\r\n") {
+            rest = stripped;
+        }
+    }
+    out
+}
+
+fn wait_for_server(port: u16) -> Result<(), String> {
+    for _ in 0..50 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(format!("server on 127.0.0.1:{port} never came up"))
 }

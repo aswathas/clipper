@@ -9,6 +9,11 @@ pub fn now_iso8601() -> String {
         .unwrap_or_else(|_| String::new())
 }
 
+/// Unix seconds, for the index.
+pub fn now_unix() -> i64 {
+    OffsetDateTime::now_utc().unix_timestamp()
+}
+
 /// `YYYY-MM-DD_HHMM` (UTC) for vault filenames.
 ///
 /// Derived by slicing the RFC-3339 stamp rather than by a format macro, so it

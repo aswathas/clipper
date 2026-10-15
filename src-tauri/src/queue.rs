@@ -37,14 +37,31 @@ pub fn url_hash(url: &str) -> String {
 }
 
 /// One captured item in `inbox.jsonl`.
+///
+/// URL captures carry `url`; image captures (HAG-6) carry `path` instead. The
+/// field that is absent is omitted from the JSON, so HAG-3's on-disk shape is
+/// unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueEntry {
     pub id: String,
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub source: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub saved_at: String,
+}
+
+impl QueueEntry {
+    /// The thing to hand the extractor: the URL, else the file path.
+    pub fn target(&self) -> String {
+        self.url
+            .clone()
+            .or_else(|| self.path.clone())
+            .unwrap_or_default()
+    }
 }
 
 /// Append one JSON object as a line, fsync'd so a polling reader sees it.

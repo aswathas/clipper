@@ -105,8 +105,8 @@ impl Drainer {
         let staging = self.cfg.staging_dir();
         fs::create_dir_all(&staging)?;
         let prompt_path = staging.join(format!("batch_{}.md", uuid::Uuid::new_v4()));
-        let urls: Vec<&str> = entries.iter().map(|e| e.url.as_str()).collect();
-        let prompt_text = build_prompt(&self.header, &urls);
+        let targets: Vec<String> = entries.iter().map(QueueEntry::target).collect();
+        let prompt_text = build_prompt(&self.header, &targets);
         fs::write(&prompt_path, &prompt_text)?;
 
         // ---- run the provider ----
@@ -191,7 +191,7 @@ impl Drainer {
                 &self.cfg.archive_jsonl(),
                 &serde_json::json!({
                     "id": entry.id,
-                    "hash": queue::url_hash(&entry.url),
+                    "hash": queue::url_hash(&entry.target()),
                     "at": clock::now_iso8601(),
                 }),
             )?;
@@ -260,7 +260,7 @@ impl Drainer {
                 &self.cfg.deadletter_jsonl(),
                 &serde_json::json!({
                     "id": entry.id,
-                    "url": entry.url,
+                    "url": entry.target(),
                     "source": entry.source,
                     "reason": reason,
                     "at": clock::now_iso8601(),
@@ -335,9 +335,9 @@ fn drain(pipe: Option<impl Read>) -> String {
     String::from_utf8_lossy(&buffer).into_owned()
 }
 
-/// `extract.md` header + the batch's URLs as a JSON list.
-fn build_prompt(header: &str, urls: &[&str]) -> String {
-    let list = serde_json::to_string_pretty(urls).unwrap_or_else(|_| "[]".to_string());
+/// `extract.md` header + the batch's targets as a JSON list.
+fn build_prompt(header: &str, targets: &[String]) -> String {
+    let list = serde_json::to_string_pretty(targets).unwrap_or_else(|_| "[]".to_string());
     format!("{header}\n\nURLs (JSON list, in order):\n\n{list}\n")
 }
 

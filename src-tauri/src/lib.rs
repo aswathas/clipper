@@ -15,11 +15,15 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 pub mod capture;
 pub mod clock;
 pub mod config;
+pub mod db;
 pub mod drainer;
+pub mod frontmatter;
 pub mod prompts;
 pub mod queue;
 pub mod selfcheck;
+pub mod server;
 pub mod vault;
+pub mod vaultwatch;
 
 use capture::CaptureOutcome;
 use config::Config;
@@ -154,10 +158,49 @@ pub fn run() {
                 })?;
 
             // ---- background drainer ----
-            let drainer = Arc::new(Drainer::new(cfg.clone(), lock)?);
+            let drainer = Arc::new(Drainer::new(cfg.clone(), Arc::clone(&lock))?);
             tauri::async_runtime::spawn(async move {
                 drainer.run_forever().await;
             });
+
+            // ---- SQLite index, kept in step with the vault ----
+            let index_db: db::Db = Arc::new(Mutex::new(db::open(
+                &config::state_dir().join("index.db"),
+            )?));
+            let indexer = Arc::new(vaultwatch::Indexer::new(
+                cfg.clone(),
+                Arc::clone(&index_db),
+            ));
+            tauri::async_runtime::spawn(async move {
+                indexer.watch().await;
+            });
+
+            // ---- REST API on [server] bind/port ----
+            // Bind synchronously so a taken port fails loudly here rather than
+            // silently moving to another one.
+            let listener = match server::bind(&cfg) {
+                Ok(listener) => listener,
+                Err(e) => {
+                    eprintln!(
+                        "Clipper: cannot bind {}:{} — {e}. Another program (or another Clipper) may be using that port.",
+                        cfg.server.bind, cfg.server.port
+                    );
+                    return Err(Box::new(e));
+                }
+            };
+            let api_state = server::AppState {
+                cfg: cfg.clone(),
+                db: Arc::clone(&index_db),
+                queue_lock: Arc::clone(&lock),
+            };
+            tauri::async_runtime::spawn(async move {
+                server::serve(listener, api_state).await;
+            });
+
+            println!(
+                "Clipper: dashboard at http://{}:{}",
+                cfg.server.bind, cfg.server.port
+            );
 
             println!("Clipper: tray ready, global hotkey {CAPTURE_HOTKEY} registered");
 

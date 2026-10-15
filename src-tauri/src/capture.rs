@@ -42,7 +42,8 @@ pub fn capture(cfg: &Config, lock: &Mutex<()>, text: &str) -> io::Result<Capture
     let id = uuid::Uuid::new_v4().to_string();
     let entry = QueueEntry {
         id: id.clone(),
-        url,
+        url: Some(url),
+        path: None,
         source: "clipboard".into(),
         kind: "url".into(),
         saved_at: clock::now_iso8601(),
