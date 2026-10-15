@@ -10,6 +10,7 @@ fn main() {
             "--hag6-smoke" => Some(clipper_lib::selfcheck::run_hag6()),
             "--hag7-smoke" => Some(clipper_lib::selfcheck::run_hag7()),
             "--hag10-smoke" => Some(clipper_lib::selfcheck::run_hag10()),
+            "--integration-smoke" => Some(clipper_lib::selfcheck::integration_api()),
             _ => None,
         };
         if let Some(code) = code {

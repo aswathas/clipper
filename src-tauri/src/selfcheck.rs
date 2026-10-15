@@ -620,6 +620,30 @@ fn http_with_headers(
     body: Option<&str>,
     extra: &[(&str, &str)],
 ) -> Result<(u16, String), String> {
+    let (status, head, bytes) = http_full(port, method, path, extra, body)?;
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        dechunk(&body)
+    } else {
+        body
+    };
+    Ok((status, body))
+}
+
+/// Like [`http`], but keeps the body as bytes (for the PNG) and returns the
+/// raw header block so headers and content types can be checked.
+fn http_bytes(port: u16, path: &str) -> Result<(u16, String, Vec<u8>), String> {
+    http_full(port, "GET", path, &[], None)
+}
+
+/// The one implementation: status, raw header block, raw body bytes.
+fn http_full(
+    port: u16,
+    method: &str,
+    path: &str,
+    extra: &[(&str, &str)],
+    body: Option<&str>,
+) -> Result<(u16, String, Vec<u8>), String> {
     use std::io::{Read, Write};
 
     let mut stream =
@@ -642,43 +666,6 @@ fn http_with_headers(
         request.push_str(body);
     }
 
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| e.to_string())?;
-
-    let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&raw).into_owned();
-
-    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((raw.as_str(), ""));
-    let status = head
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|code| code.parse().ok())
-        .unwrap_or(0);
-    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
-        dechunk(body)
-    } else {
-        body.to_string()
-    };
-
-    Ok((status, body))
-}
-
-/// Like [`http`], but keeps the body as bytes (for the PNG) and returns the
-/// raw header block so the content type can be checked.
-fn http_bytes(port: u16, path: &str) -> Result<(u16, String, Vec<u8>), String> {
-    use std::io::{Read, Write};
-
-    let mut stream =
-        std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .ok();
-
-    let request =
-        format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     stream
         .write_all(request.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -1160,4 +1147,260 @@ fn hag10_memory_injection() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ================================================ HAG-12 integration gates
+
+/// Cross-cutting contracts that every later slice (S4-S8) builds on.
+///
+/// Also reachable from `tests/integration_api.rs` on a toolchain where
+/// `cargo test` can load a Tauri-linked harness; here it runs as
+/// `clipper.exe --integration-smoke`.
+pub fn integration_api() -> i32 {
+    use crate::{db, server, vaultwatch};
+
+    println!("integration api gates");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    // ---- a temp home with three indexed notes and a live server ----
+    let root = std::env::temp_dir().join(format!("clipper-hag12-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, std::net::SocketAddr), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+        let indexer = Arc::new(vaultwatch::Indexer::new(cfg.clone(), Arc::clone(&index_db)));
+        let ready = indexer.ready_flag();
+
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new("hag12".to_string())),
+            lan_ip: "127.0.0.1".into(),
+        };
+
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(async move {
+                tokio::spawn(indexer.watch());
+                server::serve(listener, state).await;
+            });
+        });
+        wait_for_server(addr.port())?;
+
+        let mut watching = false;
+        for _ in 0..100 {
+            if ready.load(std::sync::atomic::Ordering::SeqCst) {
+                watching = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if !watching {
+            return Err("the vault watcher never became ready".into());
+        }
+
+        for (id, title, url, tag) in [
+            ("int11111", "Rust ownership explained", "https://rust.example/1", "rust"),
+            ("int22222", "Go routines", "https://go.example/2", "go"),
+            ("int33333", "Notes on notes", "https://notes.example/3", "notes"),
+        ] {
+            let body = format!(
+                "---\ntype: article\nsource: example.com\ntitle: {title}\nurl: {url}\n\
+                 saved_at: 2026-01-01T12:00:00Z\nsummary: A summary.\ntags: [{tag}]\n---\n\n# {title}\n"
+            );
+            fs::write(
+                cfg.vault_inbox()
+                    .join(format!("2026-01-01_1200_clipboard_{id}.md")),
+                body,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        std::thread::sleep(Duration::from_millis(1500));
+        Ok((addr.port(), addr))
+    })();
+
+    let (port, addr) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+
+    // 1. saved_at is Unix seconds, as a JSON number
+    gate!("saved_at_is_unix_seconds", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/items", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/items -> {status}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let value = payload["items"][0]
+            .get("saved_at")
+            .ok_or("the item has no saved_at")?;
+        let seconds = value
+            .as_i64()
+            .ok_or_else(|| format!("saved_at is not an integer: {value}"))?;
+        if !(1_500_000_000..4_000_000_000).contains(&seconds) {
+            return Err(format!("saved_at {seconds} is not Unix seconds"));
+        }
+        Ok(())
+    })());
+
+    // 2. the FTS5 external-content triggers stay in sync across I/U/D
+    gate!("fts5_triggers_stay_in_sync", (|| -> Result<(), String> {
+        let conn = db::open_in_memory().map_err(|e| e.to_string())?;
+        let mut item = db::Item {
+            id: "fts1".into(),
+            url: "https://x/1".into(),
+            kind: Some("article".into()),
+            source: Some("clipboard".into()),
+            title: Some("Rust ownership".into()),
+            summary: Some("borrow checker".into()),
+            vault_path: None,
+            saved_at: 1_700_000_000,
+            status: "inbox".into(),
+            tags: vec!["rust".into()],
+        };
+        db::upsert(&conn, &item).map_err(|e| e.to_string())?;
+
+        let count = |needle: &str| -> Result<i64, String> {
+            db::list(
+                &conn,
+                &db::Query {
+                    limit: 10,
+                    offset: 0,
+                    q: Some(needle.to_string()),
+                    ..Default::default()
+                },
+            )
+            .map(|(_, total)| total)
+            .map_err(|e| e.to_string())
+        };
+
+        if count("rust")? != 1 {
+            return Err("an inserted row never reached the FTS index".into());
+        }
+
+        item.title = Some("Go routines".into());
+        item.tags = vec!["go".into()];
+        db::upsert(&conn, &item).map_err(|e| e.to_string())?;
+        if count("rust")? != 0 {
+            return Err("the old term still matches after an update".into());
+        }
+        if count("go")? != 1 {
+            return Err("the new term does not match after an update".into());
+        }
+
+        conn.execute("DELETE FROM items WHERE id = 'fts1'", [])
+            .map_err(|e| e.to_string())?;
+        if count("go")? != 0 {
+            return Err("a deleted row is still searchable".into());
+        }
+        Ok(())
+    })());
+
+    // 3. the drainer/indexer contract: items.type is populated from the note
+    gate!("indexer_populates_items_type", (|| -> Result<(), String> {
+        let (_, body) = http(port, "GET", "/api/items", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let items = payload["items"].as_array().ok_or("no items array")?;
+        if items.len() != 3 {
+            return Err(format!("expected 3 indexed items, got {} ({body})", items.len()));
+        }
+        for item in items {
+            if item["type"].as_str() != Some("article") {
+                return Err(format!("type is {} for {}", item["type"], item["id"]));
+            }
+        }
+        Ok(())
+    })());
+
+    // 4. CORS: allowed origins get the header, everyone else does not
+    gate!("cors_allowlist_is_locked", (|| -> Result<(), String> {
+        let (_, allowed, _) =
+            http_full(port, "GET", "/healthz", &[("Origin", "http://127.0.0.1:7137")], None)?;
+        if !allowed.to_ascii_lowercase().contains("access-control-allow-origin") {
+            return Err("the allow-listed origin got no CORS header".into());
+        }
+        for origin in ["http://evil.example", "http://192.168.1.3:7137"] {
+            let (_, denied, _) =
+                http_full(port, "GET", "/healthz", &[("Origin", origin)], None)?;
+            if denied.to_ascii_lowercase().contains("access-control-allow-origin") {
+                return Err(format!("{origin} was granted CORS"));
+            }
+        }
+        Ok(())
+    })());
+
+    // 5. the API is loopback-only by default
+    gate!("server_binds_loopback", (|| -> Result<(), String> {
+        let default_bind = Config::default().server.bind;
+        if default_bind != "127.0.0.1" {
+            return Err(format!("the default bind is {default_bind}, not 127.0.0.1"));
+        }
+        if !addr.ip().is_loopback() {
+            return Err(format!("listening on {}", addr.ip()));
+        }
+        Ok(())
+    })());
+
+    // 6. hostile FTS input cannot 500 the API
+    gate!("fts_query_input_is_escaped", (|| -> Result<(), String> {
+        for probe in ["%22unbalanced", "title%3A%28", "a%20OR%20b%20%22", "*", "%28%29", "-"] {
+            let (status, body) = http(port, "GET", &format!("/api/items?q={probe}"), None)?;
+            if status != 200 {
+                return Err(format!("q={probe} -> {status} {body}"));
+            }
+        }
+        let (_, body) = http(port, "GET", "/api/items?q=%22Rust%20ownership%22", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["total"].as_i64() != Some(1) {
+            return Err(format!("a quoted phrase search returned {}", payload["total"]));
+        }
+        Ok(())
+    })());
+
+    if failed == 0 {
+        println!("integration api gates: OK ({total} gates)");
+        0
+    } else {
+        println!("integration api gates: {failed} of {total} FAILED");
+        1
+    }
 }

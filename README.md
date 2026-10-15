@@ -231,6 +231,7 @@ clipper.exe --hag4-smoke   # SQLite, FTS5, every REST route over real HTTP
 clipper.exe --hag6-smoke   # image capture through the drainer
 clipper.exe --hag7-smoke   # pairing: /pair, /pair.png, token-gated /save
 clipper.exe --hag10-smoke  # soul/user/memory seeding + injection into the Claude prompt
+clipper.exe --integration-smoke  # cross-cutting API contract gates (also tests/integration_api.rs)
 ```
 
 > These live behind flags rather than in `tests/` because a Rust test-harness binary
