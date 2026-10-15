@@ -78,6 +78,9 @@ pub fn router(state: AppState) -> Router {
         .route("/save", post(save_clip))
         // slice routers
         .merge(crate::routes_skills::router())
+        .merge(crate::routes_memory::router())
+        .merge(crate::routes_soul::router())
+        .merge(crate::routes_self::router())
         .layer(middleware::from_fn(cors))
         .with_state(state)
 }

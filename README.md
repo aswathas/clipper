@@ -218,6 +218,10 @@ Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard
 | `PUT /api/memory/{part}` `{content, if_match?}` | `{ok, mtime, etag}`; **`412`** when `if_match` is stale |
 | `GET /api/soul` | the soul plus `settings` parsed from its frontmatter |
 | `PUT /api/soul` `{content, if_match?}` | same rules as `/api/memory/soul` |
+| `GET /api/events` | Server-Sent Events stream (`text/event-stream`) |
+| `POST /api/events` `{kind, payload?}` | records a `user_event` |
+| `GET /api/self/summary` | `{topics, patterns, recent_events, event_count}` |
+| `POST /api/self/recompute` | rebuilds topics + patterns from the index |
 
 Optimistic concurrency uses `If-Match` against the part's `etag` — a SHA-256 content
 hash, not the mtime. Filesystems that only tick mtime once per second would let two

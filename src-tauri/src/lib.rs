@@ -17,12 +17,14 @@ pub mod clock;
 pub mod config;
 pub mod db;
 pub mod drainer;
+pub mod events;
 pub mod frontmatter;
 pub mod memory;
 pub mod pairing;
 pub mod prompts;
 pub mod queue;
 pub mod routes_memory;
+pub mod routes_self;
 pub mod routes_skills;
 pub mod routes_soul;
 pub mod screenshot;
@@ -322,6 +324,9 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 indexer.watch().await;
             });
+
+            // ---- self-improvement: recompute at startup, then daily ----
+            tauri::async_runtime::spawn(routes_self::nightly(Arc::clone(&index_db)));
 
             // ---- REST API on the port bound above ----
             let api_state = server::AppState {

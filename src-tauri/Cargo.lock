@@ -566,6 +566,7 @@ dependencies = [
  "arboard",
  "axum",
  "dirs",
+ "futures-util",
  "image",
  "notify",
  "pulldown-cmark",

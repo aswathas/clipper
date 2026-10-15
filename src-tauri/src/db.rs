@@ -125,6 +125,27 @@ CREATE TABLE IF NOT EXISTS memory_file (
   mtime INTEGER NOT NULL DEFAULT 0,
   sha256 TEXT NOT NULL DEFAULT ''
 );
+
+-- Self-improvement (S6).
+CREATE TABLE IF NOT EXISTS user_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT
+);
+CREATE INDEX IF NOT EXISTS user_event_ts_idx ON user_event(ts DESC);
+CREATE TABLE IF NOT EXISTS user_topic (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  label TEXT NOT NULL UNIQUE,
+  weight REAL NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS user_pattern (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rule_md TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 0,
+  added_at INTEGER NOT NULL DEFAULT 0
+);
 "#,
     )
 }
@@ -403,6 +424,129 @@ pub fn memory_file(conn: &Connection, path: &str) -> rusqlite::Result<Option<(i6
         |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .optional()
+}
+
+// ----------------------------------------------------------- self-improvement
+
+/// Something the user did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserEvent {
+    pub id: i64,
+    pub ts: i64,
+    pub kind: String,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+}
+
+/// A topic Clipper has noticed the user cares about.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserTopic {
+    pub label: String,
+    pub weight: f64,
+    pub last_seen: i64,
+}
+
+/// A rule derived from the user's history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPattern {
+    pub rule_md: String,
+    pub confidence: f64,
+    pub added_at: i64,
+}
+
+pub fn record_event(
+    conn: &Connection,
+    ts: i64,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> rusqlite::Result<i64> {
+    conn.execute(
+        "INSERT INTO user_event (ts, kind, payload_json) VALUES (?1, ?2, ?3)",
+        params![ts, kind, payload.to_string()],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn event_count(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM user_event", [], |row| row.get(0))
+}
+
+pub fn recent_events(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<UserEvent>> {
+    let mut statement = conn.prepare(
+        "SELECT id, ts, kind, COALESCE(payload_json, '{}') FROM user_event
+         ORDER BY ts DESC, id DESC LIMIT ?1",
+    )?;
+    let rows = statement.query_map(params![limit], |row| {
+        let payload: String = row.get(3)?;
+        Ok(UserEvent {
+            id: row.get(0)?,
+            ts: row.get(1)?,
+            kind: row.get(2)?,
+            payload: serde_json::from_str(&payload).unwrap_or_else(|_| serde_json::json!({})),
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_topics(conn: &Connection) -> rusqlite::Result<Vec<UserTopic>> {
+    let mut statement = conn.prepare(
+        "SELECT label, weight, last_seen FROM user_topic ORDER BY weight DESC, label ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(UserTopic {
+            label: row.get(0)?,
+            weight: row.get(1)?,
+            last_seen: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_patterns(conn: &Connection) -> rusqlite::Result<Vec<UserPattern>> {
+    let mut statement = conn.prepare(
+        "SELECT rule_md, confidence, added_at FROM user_pattern ORDER BY confidence DESC, id ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(UserPattern {
+            rule_md: row.get(0)?,
+            confidence: row.get(1)?,
+            added_at: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Recompute replaces the derived tables wholesale — they are pure functions of
+/// the index, so there is nothing to merge.
+pub fn replace_topics(conn: &mut Connection, topics: &[UserTopic]) -> rusqlite::Result<()> {
+    let transaction = conn.transaction()?;
+    transaction.execute("DELETE FROM user_topic", [])?;
+    for topic in topics {
+        transaction.execute(
+            "INSERT INTO user_topic (label, weight, last_seen) VALUES (?1, ?2, ?3)",
+            params![topic.label, topic.weight, topic.last_seen],
+        )?;
+    }
+    transaction.commit()
+}
+
+pub fn replace_patterns(conn: &mut Connection, patterns: &[UserPattern]) -> rusqlite::Result<()> {
+    let transaction = conn.transaction()?;
+    transaction.execute("DELETE FROM user_pattern", [])?;
+    for pattern in patterns {
+        transaction.execute(
+            "INSERT INTO user_pattern (rule_md, confidence, added_at) VALUES (?1, ?2, ?3)",
+            params![pattern.rule_md, pattern.confidence, pattern.added_at],
+        )?;
+    }
+    transaction.commit()
+}
+
+/// Every `(type, tags_json)` pair, for deriving topics.
+pub fn item_type_tags(conn: &Connection) -> rusqlite::Result<Vec<(Option<String>, String)>> {
+    let mut statement = conn.prepare("SELECT type, COALESCE(tags, '[]') FROM items")?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    rows.collect()
 }
 
 /// FTS5 MATCH wants a phrase; wrap the user's text so their punctuation cannot

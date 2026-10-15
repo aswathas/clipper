@@ -76,6 +76,14 @@ impl Indexer {
 
         let conn = self.db.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         db::upsert(&conn, &item).map_err(std::io::Error::other)?;
+        drop(conn);
+
+        // Feed the self-improvement stream: every note that lands is an event.
+        crate::events::hub().emit(
+            "note_indexed",
+            serde_json::json!({ "id": id, "title": item.title, "type": item.kind }),
+        );
+
         Ok(Some(id))
     }
 

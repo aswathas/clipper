@@ -1876,3 +1876,302 @@ pub fn run_hag15() -> i32 {
         1
     }
 }
+
+// ========================================================= HAG-16 self-check
+
+/// Drain a subscriber until an event of `kind` shows up, or give up.
+fn wait_for_event(
+    rx: &mut tokio::sync::broadcast::Receiver<crate::events::Event>,
+    kind: &str,
+    ms: u64,
+) -> Option<crate::events::Event> {
+    let deadline = std::time::Instant::now() + Duration::from_millis(ms);
+    while std::time::Instant::now() < deadline {
+        match rx.try_recv() {
+            Ok(event) if event.kind == kind => return Some(event),
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                std::thread::sleep(Duration::from_millis(25))
+            }
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// Read just the first bytes of a response. SSE streams never end, so this
+/// cannot wait for EOF the way [`http`] does.
+fn http_read_some(
+    port: u16,
+    path: &str,
+    want: usize,
+    ms: u64,
+) -> Result<(u16, String, String), String> {
+    use std::io::{Read, Write};
+
+    let mut stream =
+        std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(ms)))
+        .ok();
+
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: text/event-stream\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let mut raw = Vec::new();
+    let mut buffer = [0u8; 512];
+    while raw.len() < want {
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => raw.extend_from_slice(&buffer[..n]),
+            // A timeout is expected: the stream stays open.
+            Err(_) => break,
+        }
+    }
+
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    Ok((status, head.to_string(), body.to_string()))
+}
+
+/// A note row, for seeding the index without going through the vault.
+fn seed_item(id: &str, kind: &str, tags: &[String]) -> crate::db::Item {
+    crate::db::Item {
+        id: id.to_string(),
+        url: format!("https://example.com/{id}"),
+        kind: Some(kind.to_string()),
+        source: Some("clipboard".to_string()),
+        title: Some(format!("Note {id}")),
+        summary: Some("A summary.".to_string()),
+        vault_path: None,
+        saved_at: 1_700_000_000,
+        status: "inbox".to_string(),
+        tags: tags.to_vec(),
+    }
+}
+
+/// HAG-16 (S6): self-improvement — events, topics, patterns, and the SSE hub.
+pub fn run_hag16() -> i32 {
+    use crate::{db, events, server};
+
+    println!("hag16 self-check");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    let root = std::env::temp_dir().join(format!("clipper-hag16-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, Config, db::Db), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.skills.dir = temp(root.join("skills"));
+        cfg.memory.dir = temp(root.join("memory"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new("hag16".to_string())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(server::serve(listener, state));
+        });
+        wait_for_server(addr.port())?;
+        Ok((addr.port(), cfg, index_db))
+    })();
+
+    let (port, cfg, index_db) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+
+    // 1. a reported event lands in the table and comes back in the summary
+    gate!("events_are_recorded", (|| -> Result<(), String> {
+        let (status, body) = http(
+            port,
+            "POST",
+            "/api/events",
+            Some(r#"{"kind":"clip_viewed","payload":{"id":"abc"}}"#),
+        )?;
+        if status != 200 {
+            return Err(format!("POST /api/events -> {status} {body}"));
+        }
+        let (_, body) = http(port, "GET", "/api/self/summary", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["event_count"].as_i64() != Some(1) {
+            return Err(format!("event_count = {} ({body})", payload["event_count"]));
+        }
+        if payload["recent_events"][0]["kind"] != "clip_viewed" {
+            return Err(format!("recent kind = {}", payload["recent_events"][0]["kind"]));
+        }
+        Ok(())
+    })());
+
+    // 2. recompute derives topics and patterns from the index
+    gate!("recompute_derives_topics_and_patterns", (|| -> Result<(), String> {
+        {
+            let conn = index_db.lock().unwrap_or_else(|p| p.into_inner());
+            for (id, kind, tags) in [
+                ("n1", "article", vec!["rust".to_string(), "systems".to_string()]),
+                ("n2", "article", vec!["rust".to_string()]),
+                ("n3", "video", vec!["go".to_string()]),
+            ] {
+                db::upsert(&conn, &seed_item(id, kind, &tags)).map_err(|e| e.to_string())?;
+            }
+        }
+
+        let (status, body) = http(port, "POST", "/api/self/recompute", Some("{}"))?;
+        if status != 200 {
+            return Err(format!("recompute -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let topics = payload["topics"].as_array().cloned().unwrap_or_default();
+        if topics.is_empty() {
+            return Err("no topics were derived".into());
+        }
+        if topics[0]["label"] != "rust" || topics[0]["weight"].as_f64() != Some(2.0) {
+            return Err(format!("top topic = {} ({body})", topics[0]));
+        }
+        let patterns = payload["patterns"].as_array().cloned().unwrap_or_default();
+        if patterns.is_empty() {
+            return Err("no patterns were derived".into());
+        }
+        if !patterns[0]["rule_md"].as_str().unwrap_or("").contains("rust") {
+            return Err(format!("first pattern = {}", patterns[0]["rule_md"]));
+        }
+        Ok(())
+    })());
+
+    // 3. recompute is idempotent: derived tables are replaced, never appended
+    gate!("recompute_is_idempotent", (|| -> Result<(), String> {
+        let (_, first) = http(port, "POST", "/api/self/recompute", Some("{}"))?;
+        let (_, second) = http(port, "POST", "/api/self/recompute", Some("{}"))?;
+        let a: Value = serde_json::from_str(&first).map_err(|e| e.to_string())?;
+        let b: Value = serde_json::from_str(&second).map_err(|e| e.to_string())?;
+        if a["topics"].as_array().map(Vec::len) != b["topics"].as_array().map(Vec::len) {
+            return Err("the topic count drifted between runs".into());
+        }
+        if a["topics"].as_array().map(Vec::len) != Some(3) {
+            return Err(format!("expected 3 topics (rust, systems, go), got {}", a["topics"]));
+        }
+        if a["patterns"].as_array().map(Vec::len) != b["patterns"].as_array().map(Vec::len) {
+            return Err("the pattern count drifted between runs".into());
+        }
+        Ok(())
+    })());
+
+    // 4. the hub reaches live subscribers
+    gate!("hub_broadcasts_to_subscribers", (|| -> Result<(), String> {
+        let mut rx = events::hub().subscribe();
+        let (status, _) = http(
+            port,
+            "POST",
+            "/api/events",
+            Some(r#"{"kind":"search_used"}"#),
+        )?;
+        if status != 200 {
+            return Err(format!("POST /api/events -> {status}"));
+        }
+        let event = wait_for_event(&mut rx, "user_event", 3000)
+            .ok_or("no user_event reached the subscriber")?;
+        if event.payload["kind"] != "search_used" {
+            return Err(format!("payload = {}", event.payload));
+        }
+        Ok(())
+    })());
+
+    // 5. indexing a note feeds the stream
+    gate!("vaultwatch_feeds_the_stream", (|| -> Result<(), String> {
+        let vault = cfg.vault_inbox();
+        fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
+        fs::write(
+            vault.join("2026-01-01_1200_clipboard_stream1.md"),
+            "---\ntype: article\nsource: example.com\nurl: https://example.com/s\n\
+             saved_at: 2026-01-01T12:00:00Z\ntitle: Streamed\ntags: [events]\n---\n\n# Streamed\n",
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut rx = events::hub().subscribe();
+        let indexer = crate::vaultwatch::Indexer::new(cfg.clone(), Arc::clone(&index_db));
+        let indexed = indexer.ingest_dir().map_err(|e| e.to_string())?;
+        if indexed != 1 {
+            return Err(format!("ingested {indexed} notes, expected 1"));
+        }
+        let event = wait_for_event(&mut rx, "note_indexed", 3000)
+            .ok_or("indexing did not emit note_indexed")?;
+        if event.payload["id"] != "stream1" {
+            return Err(format!("payload = {}", event.payload));
+        }
+        Ok(())
+    })());
+
+    // 6. the SSE route really speaks text/event-stream
+    gate!("sse_route_streams", (|| -> Result<(), String> {
+        let (status, head, body) = http_read_some(port, "/api/events", 64, 4000)?;
+        if status != 200 {
+            return Err(format!("GET /api/events -> {status}"));
+        }
+        if !head.to_ascii_lowercase().contains("text/event-stream") {
+            return Err(format!("content-type was not event-stream: {head}"));
+        }
+        if !body.contains("event: hello") {
+            return Err(format!("no hello frame: {body:?}"));
+        }
+        Ok(())
+    })());
+
+
+    if failed == 0 {
+        println!("hag16 self-check: OK ({total} gates)");
+        0
+    } else {
+        println!("hag16 self-check: {failed} of {total} FAILED");
+        1
+    }
+}

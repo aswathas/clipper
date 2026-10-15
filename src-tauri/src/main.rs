@@ -13,6 +13,7 @@ fn main() {
             "--integration-smoke" => Some(clipper_lib::selfcheck::integration_api()),
             "--hag14-smoke" => Some(clipper_lib::selfcheck::run_hag14()),
             "--hag15-smoke" => Some(clipper_lib::selfcheck::run_hag15()),
+            "--hag16-smoke" => Some(clipper_lib::selfcheck::run_hag16()),
             _ => None,
         };
         if let Some(code) = code {
