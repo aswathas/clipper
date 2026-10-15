@@ -212,8 +212,18 @@
               </template>
             </div>
 
+            <!-- Today Error State (DESIGN.md Section 10) -->
+            <div x-show="errorState" class="page-error-card" role="alert">
+              <h3 class="page-error-title">Unable to connect to library</h3>
+              <p class="page-error-desc" x-text="errorState"></p>
+              <div style="display: flex; gap: var(--sp-2); justify-content: center;">
+                <button type="button" class="btn btn-primary btn-sm" @click="loadItems()">Try again</button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="navigator.clipboard.writeText(errorState); toast('Error copied to clipboard', 'info')">Copy details</button>
+              </div>
+            </div>
+
             <!-- Today Empty State (DESIGN.md Section 3 & 10) -->
-            <div x-show="items.length === 0" class="empty-state">
+            <div x-show="!errorState && items.length === 0" class="empty-state">
               <h3 class="empty-state-title">Your library is quiet</h3>
               <p class="empty-state-desc">The first save is the hardest — try it now.</p>
               <form @submit.prevent="saveFirstUrl()" style="display: flex; gap: var(--sp-2);">
@@ -438,8 +448,18 @@
             </template>
           </div>
 
+          <!-- Library Error State (DESIGN.md Section 10) -->
+          <div x-show="errorState" class="page-error-card" role="alert">
+            <h3 class="page-error-title">Unable to connect to library</h3>
+            <p class="page-error-desc" x-text="errorState"></p>
+            <div style="display: flex; gap: var(--sp-2); justify-content: center;">
+              <button type="button" class="btn btn-primary btn-sm" @click="loadItems()">Try again</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="navigator.clipboard.writeText(errorState); toast('Error copied to clipboard', 'info')">Copy details</button>
+            </div>
+          </div>
+
           <!-- Empty State (DESIGN.md Section 10) -->
-          <div x-show="!loading && filteredItems().length === 0" class="empty-state">
+          <div x-show="!loading && !errorState && filteredItems().length === 0" class="empty-state">
             <h3 class="empty-state-title">Nothing saved yet</h3>
             <p class="empty-state-desc">The library grows one item at a time.</p>
             <form @submit.prevent="saveUrl()" style="display: flex; gap: var(--sp-2);">
@@ -559,8 +579,18 @@
             </div>
           </div>
 
+          <!-- Inbox Error State (DESIGN.md Section 10) -->
+          <div x-show="errorState" class="page-error-card" role="alert">
+            <h3 class="page-error-title">Unable to connect to inbox</h3>
+            <p class="page-error-desc" x-text="errorState"></p>
+            <div style="display: flex; gap: var(--sp-2); justify-content: center;">
+              <button type="button" class="btn btn-primary btn-sm" @click="loadItems()">Try again</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="navigator.clipboard.writeText(errorState); toast('Error copied to clipboard', 'info')">Copy details</button>
+            </div>
+          </div>
+
           <!-- Empty State (DESIGN.md Section 10) -->
-          <div x-show="!loading && filteredItems().length === 0" class="empty-state">
+          <div x-show="!loading && !errorState && filteredItems().length === 0" class="empty-state">
             <h3 class="empty-state-title">Inbox is zero</h3>
             <p class="empty-state-desc">Everything is filed away in your library.</p>
             <a href="#/library" class="btn btn-secondary btn-sm">Browse Library →</a>
@@ -1228,7 +1258,7 @@
   <!-- Toast Notification Container -->
   <div class="toast-container" aria-live="assertive">
     <template x-for="t in toasts" :key="t.id">
-      <div class="toast" x-text="t.message"></div>
+      <div class="toast" :class="'toast-' + t.type" x-text="t.message"></div>
     </template>
   </div>
 

@@ -270,14 +270,17 @@ const MOCK_DATA = {
   }
 };
 
-async function api(path, opts = {}) {
-  const isMock = Boolean(
-    window.__MOCK_API__ ||
-    (typeof location !== "undefined" && location.search.includes("mock")) ||
-    (typeof navigator !== "undefined" && !navigator.onLine)
-  );
+function isMockEnabled() {
+  if (typeof window !== "undefined" && window.__MOCK_API__) return true;
+  if (typeof location !== "undefined" && location.search) {
+    const params = new URLSearchParams(location.search);
+    return params.get("mock") === "1" || params.get("mock") === "true";
+  }
+  return false;
+}
 
-  if (isMock) {
+async function api(path, opts = {}) {
+  if (isMockEnabled()) {
     return mockApiHandler(path, opts);
   }
 
@@ -303,9 +306,8 @@ async function api(path, opts = {}) {
     }
     return await res.text();
   } catch (err) {
-    if (err.status) throw err;
-    console.warn(`[Clipper API] Network call failed for ${path}, falling back to mock:`, err);
-    return mockApiHandler(path, opts);
+    console.error(`[Clipper API] Fetch failed for ${path}:`, err);
+    throw err;
   }
 }
 
@@ -387,6 +389,7 @@ function pageToday() {
     dateFormatted: new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date()),
     items: [],
     loading: false,
+    errorState: null,
 
     // Metrics for "THIS WEEK" (Section 3)
     thisWeek: {
@@ -465,11 +468,14 @@ function pageToday() {
 
     async loadItems() {
       this.loading = true;
+      this.errorState = null;
       try {
         const res = await api("/api/today");
         this.items = (res.items || []).slice(0, 5);
       } catch (err) {
-        console.warn("Failed loading today items:", err);
+        this.errorState = err.message || "Failed to load today items";
+        this.items = [];
+        toast(`Error loading today's library: ${err.message}`, "danger");
       } finally {
         this.loading = false;
       }
@@ -512,6 +518,7 @@ function pageLibrary() {
     title: "Library",
     items: [],
     loading: false,
+    errorState: null,
     viewMode: "grid", // 'grid' | 'list'
     filterType: "all",
     sortMode: "recent", // 'recent' | 'oldest' | 'decay'
@@ -535,11 +542,14 @@ function pageLibrary() {
 
     async loadItems() {
       this.loading = true;
+      this.errorState = null;
       try {
         const res = await api("/api/items?status=all");
         this.items = res.items || [];
       } catch (err) {
-        console.warn("Failed loading library items:", err);
+        this.errorState = err.message || "Failed to load library items";
+        this.items = [];
+        toast(`Error loading library: ${err.message}`, "danger");
       } finally {
         this.loading = false;
       }
@@ -613,6 +623,7 @@ function pageInbox() {
     title: "Inbox",
     items: [],
     loading: false,
+    errorState: null,
     filterMode: "all", // 'all' | 'untagged' | 'needs-deadline' | 'recent'
     selectedIds: [],
     focusedIndex: 0,
@@ -624,12 +635,15 @@ function pageInbox() {
 
     async loadItems() {
       this.loading = true;
+      this.errorState = null;
       try {
         const res = await api("/api/items?status=inbox");
         const all = res.items || [];
         this.items = all.filter(i => (i.status || "inbox") === "inbox");
       } catch (err) {
-        console.warn("Failed to load inbox items:", err);
+        this.errorState = err.message || "Failed to load inbox items";
+        this.items = [];
+        toast(`Error loading inbox: ${err.message}`, "danger");
       } finally {
         this.loading = false;
       }
@@ -887,30 +901,8 @@ function pageAsk() {
 
       try {
         let streamReader = null;
-        const isMock = Boolean(
-          window.__MOCK_API__ ||
-          (typeof location !== "undefined" && location.search.includes("mock")) ||
-          (typeof navigator !== "undefined" && !navigator.onLine)
-        );
 
-        if (!isMock) {
-          try {
-            const response = await fetch(sseUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ question: q }),
-              signal: this.abortController.signal
-            });
-            if (response.ok && response.body) {
-              streamReader = response.body.getReader();
-            }
-          } catch (netErr) {
-            console.warn("Live chat endpoint unavailable, falling back to mock SSE:", netErr);
-          }
-        }
-
-        // Fallback simulated SSE ReadableStream if live backend stream not obtained
-        if (!streamReader) {
+        if (isMockEnabled()) {
           const mockAnswer = `Analyzing your archive for "${q}"...\n\nYour library holds several tightly related references. Key takeaways:\n\n1. **Core Concept**: Connected references form an active mental model rather than static files.\n2. **Synthesis**: The relevant notes indicate high alignment with your active focus on systems programming and architecture.\n3. **Recommendation**: Review the matching clips linked below to consolidate key points.`;
           const words = mockAnswer.split(" ");
           
@@ -926,6 +918,17 @@ function pageAsk() {
             }
           });
           streamReader = customStream.getReader();
+        } else {
+          const response = await fetch(sseUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: q }),
+            signal: this.abortController.signal
+          });
+          if (!response.ok || !response.body) {
+            throw new Error(`Chat endpoint error (HTTP ${response.status})`);
+          }
+          streamReader = response.body.getReader();
         }
 
         // Process SSE stream with getReader() per DESIGN.md Section 6
