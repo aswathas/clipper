@@ -116,7 +116,8 @@ function getTypeMeta(type) {
 function renderTypeBadge(type, withLabel = true) {
   const meta = getTypeMeta(type);
   const labelHtml = withLabel ? `<span class="type-badge-label">${meta.label}</span>` : "";
-  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`;
+  const svg = meta.svg.replace('<svg ', `<svg role="img" aria-label="${meta.label}" `);
+  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${svg}${labelHtml}</span>`;
 }
 
 /* ============================================================================
