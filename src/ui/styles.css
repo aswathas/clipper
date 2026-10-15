@@ -992,6 +992,163 @@ button {
   flex-shrink: 0;
 }
 
+/* --------------------------------------------------------------------------
+   5. Inbox Page Styles (DESIGN.md Section 5)
+   -------------------------------------------------------------------------- */
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background-color: var(--surface);
+}
+
+.inbox-row {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+  gap: var(--sp-3);
+  border-bottom: 1px solid var(--hairline);
+  background-color: var(--surface);
+  transition: background-color var(--motion-hover);
+  position: relative;
+  cursor: pointer;
+}
+
+.inbox-row:last-child {
+  border-bottom: none;
+}
+
+.inbox-row:hover {
+  background-color: var(--surface-2);
+}
+
+.inbox-row.focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.inbox-row.selected {
+  background-color: var(--accent-soft);
+}
+
+.inbox-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--mute-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--motion-hover), border-color var(--motion-hover);
+}
+
+.inbox-checkbox.checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.inbox-checkbox-tick {
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.inbox-row-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.inbox-row-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.inbox-row-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox-row-meta {
+  font-size: var(--fs-sm);
+  color: var(--mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.inbox-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  opacity: 0;
+  transition: opacity var(--motion-hover);
+}
+
+.inbox-row:hover .inbox-actions {
+  opacity: 1;
+}
+
+.inbox-action-chip {
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--hairline);
+  background-color: var(--surface);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--motion-hover), border-color var(--motion-hover);
+}
+
+.inbox-action-chip:hover {
+  background-color: var(--surface-2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Bulk Action Floating Bar */
+.bulk-action-bar {
+  position: sticky;
+  bottom: var(--sp-4);
+  background-color: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  padding: var(--sp-3) var(--sp-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+  z-index: 50;
+  animation: slide-up 180ms ease-out;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Toasts */
 .toast-container {
   position: fixed;

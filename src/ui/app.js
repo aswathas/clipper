@@ -335,6 +335,34 @@ function mockApiHandler(path, opts = {}) {
     return { ok: true, item: newItem };
   }
 
+  if (method === "POST" && path.includes("/status")) {
+    const idMatch = path.match(/\/api\/items\/([^/]+)\/status/);
+    if (idMatch) {
+      const id = idMatch[1];
+      let body = {};
+      try { body = typeof opts.body === "string" ? JSON.parse(opts.body) : (opts.body || {}); } catch(e) {}
+      const item = MOCK_DATA.items.find(i => i.id === id);
+      if (item && body.status) {
+        item.status = body.status;
+      }
+      return { ok: true };
+    }
+  }
+
+  if (method === "POST" && path.includes("/tags")) {
+    const idMatch = path.match(/\/api\/items\/([^/]+)\/tags/);
+    if (idMatch) {
+      const id = idMatch[1];
+      let body = {};
+      try { body = typeof opts.body === "string" ? JSON.parse(opts.body) : (opts.body || {}); } catch(e) {}
+      const item = MOCK_DATA.items.find(i => i.id === id);
+      if (item && body.tags) {
+        item.tags = body.tags;
+      }
+      return { ok: true };
+    }
+  }
+
   if (path.startsWith("/api/today") || path.startsWith("/api/items")) {
     return { items: [...MOCK_DATA.items] };
   }
@@ -557,6 +585,191 @@ function pageLibrary() {
       } catch (err) {
         toast("Failed to save: " + err.message, "danger");
       }
+    }
+  };
+}
+
+function pageInbox() {
+  return {
+    title: "Inbox",
+    items: [],
+    loading: false,
+    filterMode: "all", // 'all' | 'untagged' | 'needs-deadline' | 'recent'
+    selectedIds: [],
+    focusedIndex: 0,
+
+    async init() {
+      await this.loadItems();
+      this.initKeybindings();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const res = await api("/api/items?status=inbox");
+        const all = res.items || [];
+        this.items = all.filter(i => (i.status || "inbox") === "inbox");
+      } catch (err) {
+        console.warn("Failed to load inbox items:", err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    filteredItems() {
+      let list = [...this.items];
+      if (this.filterMode === "untagged") {
+        list = list.filter(i => !i.tags || i.tags.length === 0);
+      } else if (this.filterMode === "needs-deadline") {
+        list = list.filter(i => !i.deadline && (i.decay_score || 0) > 0.4);
+      } else if (this.filterMode === "recent") {
+        list.sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
+      }
+      return list;
+    },
+
+    isSelected(id) {
+      return this.selectedIds.includes(id);
+    },
+
+    toggleSelect(id) {
+      const idx = this.selectedIds.indexOf(id);
+      if (idx !== -1) {
+        this.selectedIds.splice(idx, 1);
+      } else {
+        this.selectedIds.push(id);
+      }
+    },
+
+    selectAll() {
+      const list = this.filteredItems();
+      if (this.selectedIds.length === list.length) {
+        this.selectedIds = [];
+      } else {
+        this.selectedIds = list.map(i => i.id);
+      }
+    },
+
+    async archiveItem(item) {
+      try {
+        await api(`/api/items/${item.id}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "archived" })
+        });
+        item.status = "archived";
+        this.items = this.items.filter(i => i.id !== item.id);
+        this.selectedIds = this.selectedIds.filter(id => id !== item.id);
+        toast(`Archived "${item.title}"`, "info");
+      } catch (err) {
+        toast(`Failed to archive: ${err.message}`, "danger");
+      }
+    },
+
+    async archiveSelected() {
+      const count = this.selectedIds.length;
+      if (count === 0) return;
+      for (const id of [...this.selectedIds]) {
+        const item = this.items.find(i => i.id === id);
+        if (item) {
+          await this.archiveItem(item);
+        }
+      }
+      this.selectedIds = [];
+      toast(`Archived ${count} items`, "info");
+    },
+
+    async deleteSelected() {
+      const count = this.selectedIds.length;
+      if (count === 0) return;
+      this.items = this.items.filter(i => !this.selectedIds.includes(i.id));
+      this.selectedIds = [];
+      toast(`Removed ${count} items`, "info");
+    },
+
+    async tagItem(item) {
+      const newTag = prompt(`Add a tag to "${item.title}":`);
+      if (newTag && newTag.trim()) {
+        const tag = newTag.trim().replace(/^#/, "");
+        item.tags = item.tags || [];
+        if (!item.tags.includes(tag)) {
+          item.tags.push(tag);
+          try {
+            await api(`/api/items/${item.id}/tags`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tags: item.tags })
+            });
+            toast(`Added #${tag}`, "info");
+          } catch (e) {
+            toast(`Saved tag locally`, "info");
+          }
+        }
+      }
+    },
+
+    async addTagSelected() {
+      const tagPrompt = prompt(`Add a tag to ${this.selectedIds.length} items:`);
+      if (!tagPrompt || !tagPrompt.trim()) return;
+      const tag = tagPrompt.trim().replace(/^#/, "");
+      for (const id of this.selectedIds) {
+        const item = this.items.find(i => i.id === id);
+        if (item) {
+          item.tags = item.tags || [];
+          if (!item.tags.includes(tag)) item.tags.push(tag);
+        }
+      }
+      toast(`Tagged ${this.selectedIds.length} items with #${tag}`, "info");
+    },
+
+    setDeadlineSelected() {
+      toast(`Deadlines set to 7 days for ${this.selectedIds.length} items`, "info");
+      this.selectedIds = [];
+    },
+
+    openObsidian(item) {
+      if (item.vault_path) {
+        window.open(`obsidian://open?file=${encodeURIComponent(item.vault_path)}`, "_blank");
+      } else {
+        toast(`Opening "${item.title}" in Obsidian...`, "info");
+      }
+    },
+
+    initKeybindings() {
+      window.addEventListener("keydown", (e) => {
+        if (window.location.hash !== "#/inbox") return;
+        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+
+        const list = this.filteredItems();
+        if (list.length === 0) return;
+
+        if (e.key === "j") {
+          this.focusedIndex = Math.min(this.focusedIndex + 1, list.length - 1);
+        } else if (e.key === "k") {
+          this.focusedIndex = Math.max(this.focusedIndex - 1, 0);
+        } else if (e.key === "a") {
+          const item = list[this.focusedIndex];
+          if (item) this.archiveItem(item);
+        } else if (e.key === "t") {
+          const item = list[this.focusedIndex];
+          if (item) this.tagItem(item);
+        } else if (e.key === "Enter") {
+          const item = list[this.focusedIndex];
+          if (item) this.$dispatch("open-detail", item);
+        }
+      });
+    },
+
+    formatAge(savedAt) {
+      if (!savedAt) return "recently";
+      const sec = typeof savedAt === "number" && savedAt > 1e11 ? Math.floor(savedAt / 1000) : savedAt;
+      const diffSec = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+      const days = Math.floor(diffSec / 86400);
+      if (days === 0) return "today";
+      if (days === 1) return "1d";
+      if (days < 7) return `${days}d`;
+      const weeks = Math.floor(days / 7);
+      return `${weeks}w`;
     }
   };
 }

@@ -429,12 +429,112 @@
           </div>
         </section>
 
-        <section x-show="currentPage === 'inbox'">
+        <!-- Inbox Page (DESIGN.md Section 5) -->
+        <section x-show="currentPage === 'inbox'" x-data="pageInbox()">
           <div class="top-bar">
             <div class="top-bar-titles">
               <h2 class="top-bar-title">Inbox</h2>
               <p class="top-bar-desc">New saves, untriaged.</p>
             </div>
+            <div class="top-bar-actions" style="display: flex; align-items: center; gap: var(--sp-3);">
+              <span style="font-size: var(--fs-xs); color: var(--mute);" x-text="items.length + ' unread'"></span>
+              <button type="button" class="btn btn-secondary btn-sm" @click="selectAll()" x-text="selectedIds.length === filteredItems().length && filteredItems().length > 0 ? 'Deselect all' : 'Select all'"></button>
+            </div>
+          </div>
+
+          <!-- Filter chips: [ All ] [ Untagged ] [ Needs deadline ] [ Recent ] -->
+          <div class="chip-rail">
+            <button type="button"
+                    class="filter-chip"
+                    :class="{ 'active': filterMode === 'all' }"
+                    @click="filterMode = 'all'">
+              <span>All</span>
+              <span style="font-size: 10px; opacity: 0.7;" x-text="items.length"></span>
+            </button>
+            <button type="button"
+                    class="filter-chip"
+                    :class="{ 'active': filterMode === 'untagged' }"
+                    @click="filterMode = 'untagged'">
+              <span>Untagged</span>
+              <span style="font-size: 10px; opacity: 0.7;" x-text="items.filter(i => !i.tags || i.tags.length === 0).length"></span>
+            </button>
+            <button type="button"
+                    class="filter-chip"
+                    :class="{ 'active': filterMode === 'needs-deadline' }"
+                    @click="filterMode = 'needs-deadline'">
+              <span>Needs deadline</span>
+              <span style="font-size: 10px; opacity: 0.7;" x-text="items.filter(i => (i.decay_score || 0) > 0.4).length"></span>
+            </button>
+            <button type="button"
+                    class="filter-chip"
+                    :class="{ 'active': filterMode === 'recent' }"
+                    @click="filterMode = 'recent'">
+              <span>Recent</span>
+            </button>
+          </div>
+
+          <!-- Inbox Rows List -->
+          <div x-show="filteredItems().length > 0" class="inbox-list">
+            <template x-for="(item, idx) in filteredItems()" :key="item.id">
+              <div class="inbox-row"
+                   :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }"
+                   @click="openDetail(item)">
+                
+                <!-- Left Checkbox -->
+                <div class="inbox-checkbox"
+                     :class="{ 'checked': isSelected(item.id) }"
+                     @click.stop="toggleSelect(item.id)"
+                     aria-label="Select item">
+                  <span x-show="isSelected(item.id)" class="inbox-checkbox-tick">✓</span>
+                </div>
+
+                <!-- Type Icon & Label -->
+                <div x-html="typeBadge(item.type, false)" style="flex-shrink: 0;"></div>
+
+                <!-- Main Content -->
+                <div class="inbox-row-content">
+                  <div class="inbox-row-header">
+                    <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute-2);" x-text="item.type"></span>
+                    <span class="inbox-row-title" x-text="item.title"></span>
+                  </div>
+                  <div class="inbox-row-meta">
+                    <span x-text="item.url ? item.url.replace(/^https?:\/\//, '').split('/')[0] : 'local'"></span>
+                    <span>·</span>
+                    <span x-text="formatAge(item.saved_at)"></span>
+                    <template x-for="tag in (item.tags || [])" :key="tag">
+                      <span>· <span style="color: var(--ink-2);" x-text="'#' + tag"></span></span>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Hover Actions -->
+                <div class="inbox-actions" @click.stop>
+                  <button type="button" class="inbox-action-chip" @click="archiveItem(item)">Archive</button>
+                  <button type="button" class="inbox-action-chip" @click="tagItem(item)">Tag</button>
+                  <button type="button" class="inbox-action-chip" @click="openObsidian(item)">Obsidian</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Bulk Action Bar -->
+          <div x-show="selectedIds.length > 0" class="bulk-action-bar">
+            <div style="font-size: var(--fs-sm); font-weight: 600; color: var(--ink);">
+              <span x-text="selectedIds.length + ' selected'"></span>
+            </div>
+            <div style="display: flex; gap: var(--sp-2);">
+              <button type="button" class="btn btn-secondary btn-sm" @click="archiveSelected()">Archive all</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="addTagSelected()">Add tag</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="setDeadlineSelected()">Set deadline</button>
+              <button type="button" class="btn btn-ghost btn-sm" style="color: var(--danger);" @click="deleteSelected()">Delete</button>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div x-show="filteredItems().length === 0" style="text-align: center; padding: var(--sp-8) var(--sp-4); max-width: 480px; margin: 0 auto;">
+            <h3 style="font-family: var(--font-display); font-size: var(--fs-xl); color: var(--ink); margin-bottom: var(--sp-2);">Inbox is zero</h3>
+            <p style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-5);">Everything is filed away in your library.</p>
+            <a href="#/library" class="btn btn-secondary btn-sm">Browse Library →</a>
           </div>
         </section>
 
