@@ -174,7 +174,7 @@
 
             <div class="foryou-cards">
               <template x-for="item in items" :key="item.id">
-                <article class="foryou-card">
+                <article class="foryou-card" @click="openDetail(item)" style="cursor: pointer;">
                   <!-- Type color accent bar -->
                   <div class="foryou-accent-bar" :style="'background-color: var(--type-' + item.type + ');'"></div>
 
@@ -639,6 +639,116 @@
       <line x1="5" y1="12" x2="19" y2="12"></line>
     </svg>
   </button>
+
+  <!-- Detail Slide-over (DESIGN.md Section 9) -->
+  <div x-show="activeDetailItem"
+       x-cloak
+       @keydown.escape.window="closeDetail()"
+       style="position: relative; z-index: 900;">
+    <!-- Backdrop with blur -->
+    <div class="slideover-backdrop" @click="closeDetail()"></div>
+
+    <!-- Slide-over Panel -->
+    <div class="slideover-panel" @click.stop role="dialog" aria-modal="true">
+      <!-- Header -->
+      <div class="slideover-header">
+        <button type="button" class="slideover-close-btn" @click="closeDetail()" aria-label="Close detail">
+          ✕
+        </button>
+        <template x-if="activeDetailItem">
+          <div x-html="typeBadge(activeDetailItem.type, true)"></div>
+        </template>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div class="slideover-body" x-show="activeDetailItem">
+        <!-- Title -->
+        <h2 class="slideover-title" x-text="activeDetailItem ? activeDetailItem.title : ''"></h2>
+
+        <!-- Meta: Source + Date -->
+        <div class="slideover-meta" x-show="activeDetailItem">
+          <span x-text="activeDetailItem && activeDetailItem.url ? activeDetailItem.url.replace(/^https?:\/\//, '').split('/')[0] : (activeDetailItem ? activeDetailItem.source : 'local')"></span>
+          <span>·</span>
+          <span x-text="activeDetailItem && activeDetailItem.saved_at ? new Date(activeDetailItem.saved_at * 1000).toLocaleDateString() : 'recently'"></span>
+          <span>·</span>
+          <span x-text="activeDetailItem ? (activeDetailItem.reading_time_min || 5) + ' min read' : ''"></span>
+        </div>
+
+        <!-- Tag Pills with click to remove and +add -->
+        <div class="slideover-tags-row">
+          <template x-for="tag in (activeDetailItem ? activeDetailItem.tags || [] : [])" :key="tag">
+            <span class="slideover-tag-pill" @click="removeDetailTag(tag)" :title="'Click to remove #' + tag">
+              <span x-text="'#' + tag"></span>
+              <span class="remove-tag">×</span>
+            </span>
+          </template>
+          <button type="button" class="slideover-tag-add-btn" @click="addDetailTag()">+ add tag</button>
+        </div>
+
+        <hr class="slideover-divider">
+
+        <!-- Rendered Markdown Body -->
+        <div class="slideover-markdown" x-html="renderDetailContent(activeDetailItem)"></div>
+
+        <hr class="slideover-divider">
+
+        <!-- Actions -->
+        <div>
+          <div class="section-caption" style="margin-bottom: var(--sp-2);">Actions</div>
+          <div class="slideover-actions-bar">
+            <button type="button" class="btn btn-secondary btn-sm" @click="archiveDetailItem()">Archive</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="setDetailDeadline()">Set deadline</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="openDetailInObsidian()">Open in Obsidian</button>
+          </div>
+        </div>
+
+        <hr class="slideover-divider">
+
+        <!-- Related Clips -->
+        <div>
+          <div class="section-caption" style="margin-bottom: var(--sp-2);">
+            Related (4)
+          </div>
+          <div class="slideover-related-grid">
+            <template x-for="rel in getRelatedItems(activeDetailItem)" :key="rel.id">
+              <div class="slideover-related-card" @click="openDetail(rel)">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2);" x-text="rel.type"></span>
+                  <span style="font-size: 10px; color: var(--mute-2);" x-text="(rel.reading_time_min || 5) + 'm'"></span>
+                </div>
+                <div style="font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="rel.title"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <hr class="slideover-divider">
+
+        <!-- Inline Chat -->
+        <div class="slideover-chat-box">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-2);">
+            <div style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute);">
+              Chat about this
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding: 2px 6px; font-size: var(--fs-xs);" @click="detailChatOpen = !detailChatOpen" x-text="detailChatOpen ? 'Close ▴' : 'Open ▾'"></button>
+          </div>
+
+          <div x-show="detailChatOpen">
+            <div class="slideover-chat-thread">
+              <template x-for="(msg, i) in detailChatMessages" :key="i">
+                <div :class="msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant'" x-text="msg.text"></div>
+              </template>
+            </div>
+            <form @submit.prevent="sendDetailChat()" style="display: flex; gap: var(--sp-2); margin: 0;">
+              <input type="text" x-model="detailChatInput" placeholder="Ask a question about this clip..." style="flex: 1; margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink);" />
+              <button type="submit" class="btn btn-primary btn-sm" style="margin: 0;">Send</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
 
   <!-- Toast Notification Container -->
   <div class="toast-container" aria-live="assertive">

@@ -786,13 +786,104 @@ function clipperShell() {
     unreadInboxCount: 3,
     userMoodText: "reading: 3, learning: 11, idle: 2",
     activeDetailItem: null,
+    detailChatOpen: false,
+    detailChatMessages: [],
+    detailChatInput: "",
 
     openDetail(item) {
       this.activeDetailItem = item;
+      this.detailChatOpen = false;
+      this.detailChatMessages = [
+        {
+          role: "assistant",
+          text: `Ask me anything about "${item.title}". I can synthesize concepts, extract code snippets, or compare it with other clips in your archive.`
+        }
+      ];
     },
 
     closeDetail() {
       this.activeDetailItem = null;
+    },
+
+    renderDetailContent(item) {
+      if (!item) return "";
+      let md = item.content || item.summary || "";
+      if (!item.content) {
+        md = `### Synopsis\n\n${item.summary}\n\n> "Knowledge is built by connecting references, not merely accumulating files."\n\n#### Key Observations\n- Extracted from **${item.source || 'web'}** on ${new Date((item.saved_at || 0) * 1000).toLocaleDateString()}.\n- Vault destination: \`${item.vault_path || 'Library/Untitled.md'}\`\n\n\`\`\`rust\n// Example pattern reference\nasync fn verify_ownership() -> Result<(), Box<dyn std::error::Error>> {\n    println!("Synthesized via Clipper v3");\n    Ok(())\n}\n\`\`\`\n`;
+      }
+      try {
+        const raw = typeof marked !== "undefined" ? marked.parse(md) : md;
+        return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+      } catch (e) {
+        return md;
+      }
+    },
+
+    removeDetailTag(tag) {
+      if (!this.activeDetailItem || !this.activeDetailItem.tags) return;
+      this.activeDetailItem.tags = this.activeDetailItem.tags.filter(t => t !== tag);
+      toast(`Removed #${tag}`, "info");
+    },
+
+    addDetailTag() {
+      if (!this.activeDetailItem) return;
+      const tagPrompt = prompt(`Add a tag to "${this.activeDetailItem.title}":`);
+      if (tagPrompt && tagPrompt.trim()) {
+        const tag = tagPrompt.trim().replace(/^#/, "");
+        this.activeDetailItem.tags = this.activeDetailItem.tags || [];
+        if (!this.activeDetailItem.tags.includes(tag)) {
+          this.activeDetailItem.tags.push(tag);
+          toast(`Added #${tag}`, "info");
+        }
+      }
+    },
+
+    async archiveDetailItem() {
+      if (!this.activeDetailItem) return;
+      try {
+        await api(`/api/items/${this.activeDetailItem.id}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "archived" })
+        });
+        this.activeDetailItem.status = "archived";
+        toast(`Archived "${this.activeDetailItem.title}"`, "info");
+      } catch (err) {
+        toast(`Failed to archive: ${err.message}`, "danger");
+      }
+    },
+
+    setDetailDeadline() {
+      if (!this.activeDetailItem) return;
+      toast(`Deadline set for "${this.activeDetailItem.title}" (7 days)`, "info");
+    },
+
+    openDetailInObsidian() {
+      if (!this.activeDetailItem) return;
+      if (this.activeDetailItem.vault_path) {
+        window.open(`obsidian://open?file=${encodeURIComponent(this.activeDetailItem.vault_path)}`, "_blank");
+      } else {
+        toast(`Opening in Obsidian...`, "info");
+      }
+    },
+
+    getRelatedItems(item) {
+      if (!item) return [];
+      return MOCK_DATA.items
+        .filter(i => i.id !== item.id)
+        .slice(0, 4);
+    },
+
+    sendDetailChat() {
+      if (!this.detailChatInput.trim() || !this.activeDetailItem) return;
+      const question = this.detailChatInput.trim();
+      this.detailChatMessages.push({ role: "user", text: question });
+      this.detailChatInput = "";
+
+      setTimeout(() => {
+        const reply = `Based on "${this.activeDetailItem.title}", the core takeaway relates directly to: **${question}**. The source notes emphasize high-leverage architectural patterns and minimal cognitive overhead.`;
+        this.detailChatMessages.push({ role: "assistant", text: reply });
+      }, 350);
     },
 
     init() {
