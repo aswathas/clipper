@@ -25,6 +25,9 @@
 </head>
 <body x-data="clipperShell()">
 
+  <!-- Accessible Skip Link (DESIGN.md Section 13) -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
   <!-- Mobile Top Bar (<900px) -->
   <header class="mobile-top-bar" aria-label="Mobile Navigation Bar">
     <div style="display: flex; align-items: baseline; gap: 0.5rem;">
@@ -130,7 +133,7 @@
 
     <!-- Main Content Area -->
     <div class="main-wrapper">
-      <main class="main-content">
+      <main class="main-content" id="main-content" tabindex="-1">
         <!-- Today Page (Landing, DESIGN.md Section 3) -->
         <section x-show="currentPage === 'today'" x-data="pageToday()">
           <div class="top-bar">
@@ -682,11 +685,11 @@
                   </div>
                 </template>
 
-                <!-- In-Flight Streaming Message -->
-                <div x-show="streaming" class="ask-assistant-msg">
+                <!-- In-Flight Streaming Message (DESIGN.md Section 13) -->
+                <div x-show="streaming" class="ask-assistant-msg" aria-live="polite">
                   <div class="ask-assistant-essay">
                     <span x-html="renderMarkdown(currentStreamText)"></span>
-                    <span class="streaming-cursor"></span>
+                    <span class="streaming-cursor" aria-hidden="true"></span>
                   </div>
                 </div>
               </div>

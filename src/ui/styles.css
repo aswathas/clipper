@@ -1936,3 +1936,46 @@ button {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* --------------------------------------------------------------------------
+   12 & 13. Reduced Motion & Accessibility (DESIGN.md Sections 12 & 13)
+   -------------------------------------------------------------------------- */
+
+/* Skip Link */
+.skip-link {
+  position: absolute;
+  top: -60px;
+  left: var(--sp-4);
+  background-color: var(--surface);
+  color: var(--accent);
+  padding: var(--sp-2) var(--sp-4);
+  border: 2px solid var(--accent);
+  border-radius: var(--r-md);
+  z-index: 1000;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow-2);
+  transition: top var(--motion-transition);
+}
+
+.skip-link:focus {
+  top: var(--sp-4);
+}
+
+/* Accessible Focus Rings */
+:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Reduced Motion Override */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
