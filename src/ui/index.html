@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <!-- DOMPurify from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <!-- Marked.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- Custom styles & design system -->
   <link rel="stylesheet" href="styles.css">
   <!-- Alpine component & shell logic -->
@@ -480,18 +482,127 @@
         </div>
       </section>
 
-      <!-- 5. SKILLS PAGE (PLACEHOLDER) -->
+      <!-- 5. SKILLS PAGE (HAG-14) -->
       <section x-show="currentPage === 'skills'" x-data="pageSkills()">
         <div class="page-header">
           <div>
-            <h1 x-text="title"></h1>
-            <p x-text="description"></p>
+            <h1>Skills</h1>
+            <p>Custom extraction templates, agents, and automation workflows</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn-icon" @click="loadSkills()" title="Refresh">↻</button>
+            <button class="btn-clip" x-show="!isEditing" @click="newSkill()">+ New Skill</button>
           </div>
         </div>
-        <div class="empty-placeholder">
+
+        <!-- Skeleton Loading Block -->
+        <div class="skeleton-list" x-show="loading && !isEditing">
+          <div class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line full"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-placeholder" x-show="!loading && !isEditing && skills.length === 0">
           <div class="icon">⚡</div>
-          <h3 x-text="title"></h3>
-          <p x-text="statusText"></p>
+          <h3>No Skills Defined</h3>
+          <p>Create prompt templates and specialized extraction workflows.</p>
+        </div>
+
+        <!-- Skills Cards Grid -->
+        <div class="skills-grid" x-show="!isEditing && !loading && skills.length > 0">
+          <template x-for="skill in skills" :key="skill.id">
+            <article class="skill-card">
+              <div>
+                <div class="skill-card-header">
+                  <h3 x-text="skill.name"></h3>
+                  <span 
+                    class="type-badge" 
+                    :class="skill.type || 'article'"
+                    x-html="typeIcon(skill.type).svg + ' ' + (skill.type || 'skill')"
+                  ></span>
+                </div>
+                <p class="skill-card-desc" x-text="skill.description || 'No description provided.'"></p>
+              </div>
+              <div class="skill-card-actions">
+                <button type="button" class="btn-icon" @click="editSkill(skill)">Edit</button>
+                <button 
+                  type="button" 
+                  class="btn-icon" 
+                  style="color: var(--decay-red); border-color: var(--decay-red);" 
+                  @click="deleteSkill(skill.id)"
+                >Delete</button>
+              </div>
+            </article>
+          </template>
+        </div>
+
+        <!-- Split-View Editor -->
+        <div class="split-view-container" x-show="isEditing">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+            <h3 style="margin: 0; font-size: 1.15rem;" x-text="editForm.id ? 'Edit Skill' : 'Create New Skill'"></h3>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="btn-icon" @click="cancelEdit()">Cancel</button>
+              <button type="button" class="btn-clip" @click="saveSkill()">Save Skill</button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 180px; gap: 1rem; margin-top: 0.5rem;">
+            <div>
+              <label for="skillNameInput" style="font-size: 0.85rem; font-weight: 600;">Skill Name</label>
+              <input 
+                type="text" 
+                id="skillNameInput" 
+                x-model="editForm.name" 
+                placeholder="e.g. GitHub Architecture Analyzer"
+                style="margin-bottom: 0;"
+              >
+            </div>
+            <div>
+              <label for="skillTypeSelect" style="font-size: 0.85rem; font-weight: 600;">Type</label>
+              <select id="skillTypeSelect" x-model="editForm.type" style="margin-bottom: 0;">
+                <option value="article">Article</option>
+                <option value="repo">Repo</option>
+                <option value="video">Video</option>
+                <option value="book">Book</option>
+                <option value="code-error">Code Error</option>
+                <option value="photo">Photo</option>
+                <option value="paper">Paper</option>
+                <option value="summarizer">Summarizer</option>
+                <option value="analyzer">Analyzer</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label for="skillDescInput" style="font-size: 0.85rem; font-weight: 600;">Description</label>
+            <input 
+              type="text" 
+              id="skillDescInput" 
+              x-model="editForm.description" 
+              placeholder="Brief summary of what this skill does"
+              style="margin-bottom: 0;"
+            >
+          </div>
+
+          <div class="split-view-grid">
+            <!-- Left Pane: Raw Template Editor -->
+            <div class="editor-pane">
+              <label style="font-size: 0.85rem; font-weight: 600;">Prompt Template (Markdown)</label>
+              <textarea 
+                x-model="editForm.prompt_template" 
+                placeholder="# Instructions for LLM&#10;&#10;Synthesize: {{content}}"
+              ></textarea>
+            </div>
+
+            <!-- Right Pane: Sanitized Markdown Preview -->
+            <div class="preview-pane">
+              <label style="font-size: 0.85rem; font-weight: 600;">Sanitized Preview (DOMPurify)</label>
+              <div class="preview-pane-content" x-html="renderPreview()"></div>
+            </div>
+          </div>
         </div>
       </section>
 

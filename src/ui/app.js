@@ -145,6 +145,29 @@ const MOCK_DATA = {
       status: "inbox",
       vault_path: "Inbox/Rusqlite FTS5 Snippet.md"
     }
+  ],
+  skills: [
+    {
+      id: "skill-summarizer",
+      name: "Core Summarizer",
+      type: "summarizer",
+      description: "Extracts key takeaways, core concepts, and high-level bullet points from any article or text.",
+      prompt_template: "# Core Summary Template\n\nYou are an analytical summarizer. Extract 3 core takeaways and a 2-sentence executive summary.\n\n### Key Takeaways\n- Focus on actionable insights\n- Highlight trade-offs\n\n### Raw Payload\n{{content}}"
+    },
+    {
+      id: "skill-repo-analyzer",
+      name: "GitHub Repo Inspector",
+      type: "analyzer",
+      description: "Analyzes GitHub repository architecture, dependencies, license, and purpose.",
+      prompt_template: "# Repo Inspection Template\n\nInspect the repository structure and describe:\n1. Main architecture\n2. Key dependencies\n3. Primary use cases\n\nRepo: {{url}}"
+    },
+    {
+      id: "skill-code-debugger",
+      name: "Code Error Diagnostics",
+      type: "code-error",
+      description: "Parses compiler stack traces and error diagnostics, suggesting idiomatic fixes.",
+      prompt_template: "# Error Diagnostic Template\n\nAnalyze the following error trace and explain the root cause and recommended solution:\n\n```\n{{content}}\n```"
+    }
   ]
 };
 
@@ -273,6 +296,34 @@ function mockApiHandler(path, opts = {}) {
       by_status,
       stale_30d: MOCK_DATA.items.filter((i) => getDaysSince(i.saved_at) >= 30).length
     };
+  }
+  if (path.startsWith("/api/skills") && method === "GET") {
+    return { skills: [...(MOCK_DATA.skills || [])] };
+  }
+  if (path.startsWith("/api/skills") && method === "POST") {
+    const body = JSON.parse(opts.body || "{}");
+    const newSkill = {
+      id: body.id || `skill-${Date.now()}`,
+      name: body.name || "Untitled Skill",
+      type: body.type || "extractor",
+      description: body.description || "",
+      prompt_template: body.prompt_template || ""
+    };
+    if (!MOCK_DATA.skills) MOCK_DATA.skills = [];
+    const existingIdx = MOCK_DATA.skills.findIndex((s) => s.id === newSkill.id);
+    if (existingIdx !== -1) {
+      MOCK_DATA.skills[existingIdx] = newSkill;
+    } else {
+      MOCK_DATA.skills.push(newSkill);
+    }
+    return { ok: true, skill: newSkill };
+  }
+  if (path.match(/^\/api\/skills\/[^/]+$/) && method === "DELETE") {
+    const id = path.split("/api/skills/")[1];
+    if (MOCK_DATA.skills) {
+      MOCK_DATA.skills = MOCK_DATA.skills.filter((s) => s.id !== id);
+    }
+    return { ok: true };
   }
   if (path === "/healthz") {
     return "ok";
@@ -816,7 +867,111 @@ function pageSkills() {
   return {
     title: "Skills",
     description: "Custom extraction templates, agents, and automation workflows",
-    statusText: "Coming soon — HAG-14 will populate this"
+    skills: [],
+    loading: true,
+    isEditing: false,
+    editForm: {
+      id: "",
+      name: "",
+      type: "summarizer",
+      description: "",
+      prompt_template: ""
+    },
+
+    async init() {
+      await this.loadSkills();
+    },
+
+    async loadSkills() {
+      this.loading = true;
+      try {
+        const data = await api("/api/skills");
+        this.skills = data.skills || [];
+      } catch (e) {
+        console.error("Failed loading Skills:", e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    newSkill() {
+      this.editForm = {
+        id: "skill-" + Date.now(),
+        name: "",
+        type: "summarizer",
+        description: "",
+        prompt_template: "# New Extraction Skill\n\nInstructions for Claude:\n- Extract key facts\n- Synthesize action points\n\n### Content\n{{content}}"
+      };
+      this.isEditing = true;
+    },
+
+    editSkill(skill) {
+      this.editForm = JSON.parse(JSON.stringify(skill));
+      this.isEditing = true;
+    },
+
+    cancelEdit() {
+      this.isEditing = false;
+    },
+
+    renderPreview() {
+      const raw = this.editForm.prompt_template || "*No prompt template entered.*";
+      try {
+        if (typeof marked !== "undefined" && typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(marked.parse(raw));
+        }
+        if (typeof DOMPurify !== "undefined") {
+          return DOMPurify.sanitize(raw);
+        }
+      } catch (e) {
+        console.warn("Markdown render error:", e);
+      }
+      return raw;
+    },
+
+    async saveSkill() {
+      if (!this.editForm.name || !this.editForm.name.trim()) {
+        toast("Please enter a skill name", "error");
+        return;
+      }
+      const skillToSave = JSON.parse(JSON.stringify(this.editForm));
+      const idx = this.skills.findIndex((s) => s.id === skillToSave.id);
+      if (idx !== -1) {
+        this.skills[idx] = skillToSave;
+      } else {
+        this.skills.push(skillToSave);
+      }
+      this.isEditing = false;
+      toast(`Skill "${skillToSave.name}" saved`, "saved");
+
+      try {
+        await api("/api/skills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(skillToSave)
+        });
+      } catch (err) {
+        toast(`Failed to save skill: ${err.message}`, "error");
+      }
+    },
+
+    async deleteSkill(id) {
+      const target = this.skills.find((s) => s.id === id);
+      const name = target?.name || id;
+      this.skills = this.skills.filter((s) => s.id !== id);
+      if (this.isEditing && this.editForm.id === id) {
+        this.isEditing = false;
+      }
+      toast(`Deleted skill "${name}"`, "saved");
+
+      try {
+        await api(`/api/skills/${encodeURIComponent(id)}`, {
+          method: "DELETE"
+        });
+      } catch (err) {
+        toast(`Failed deleting skill: ${err.message}`, "error");
+      }
+    }
   };
 }
 
