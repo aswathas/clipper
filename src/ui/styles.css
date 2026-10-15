@@ -1,0 +1,296 @@
+/* Clipper Dashboard — Pico.css Overrides & Layout */
+
+[x-cloak] {
+  display: none !important;
+}
+
+:root {
+  --clipper-decay-green: #10b981;
+  --clipper-decay-yellow: #f59e0b;
+  --clipper-decay-red: #ef4444;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: var(--pico-background-color);
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  background-color: var(--pico-card-background-color);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--pico-primary);
+  white-space: nowrap;
+}
+
+.search-section {
+  flex: 1;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.search-section input[type="search"] {
+  margin-bottom: 0;
+  height: 2.25rem;
+  font-size: 0.9rem;
+}
+
+.actions-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.actions-section button {
+  margin-bottom: 0;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.875rem;
+}
+
+/* Three-pane layout grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  min-height: calc(100vh - 65px);
+}
+
+@media (min-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr 1fr 1.5fr;
+    gap: 1.25rem;
+    align-items: start;
+  }
+}
+
+.pane {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 2px solid var(--pico-muted-border-color);
+}
+
+.pane-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pico-color);
+}
+
+.pane-header .badge {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Clip cards */
+.clip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clip-card {
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 0.75rem;
+  background: var(--pico-background-color);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.clip-card:hover {
+  border-color: var(--pico-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.clip-card.active {
+  border-color: var(--pico-primary);
+  background: var(--pico-card-background-color);
+}
+
+.clip-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.clip-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--pico-color);
+  margin: 0;
+  word-break: break-word;
+}
+
+.clip-type-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--pico-secondary-background);
+  color: var(--pico-secondary-inverse);
+}
+
+.clip-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+.clip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+
+.tag-badge {
+  font-size: 0.7rem;
+  background: var(--pico-muted-border-color);
+  padding: 0.1rem 0.4rem;
+  border-radius: 12px;
+  color: var(--pico-color);
+}
+
+/* Expanded Detail Drawer */
+.clip-detail-drawer {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--pico-muted-border-color);
+  cursor: default;
+}
+
+.clip-detail-drawer .summary {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  margin-bottom: 0.75rem;
+  color: var(--pico-color);
+}
+
+.clip-detail-drawer .links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+  word-break: break-all;
+}
+
+.clip-detail-drawer .action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.clip-detail-drawer .action-buttons button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  margin-bottom: 0;
+}
+
+/* Library Pane Specifics */
+.library-group {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  overflow: hidden;
+}
+
+.library-group-header {
+  background: var(--pico-background-color);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.library-group-header:hover {
+  background: var(--pico-muted-border-color);
+}
+
+.decay-bar-container {
+  width: 100%;
+  height: 5px;
+  background-color: var(--pico-muted-border-color);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+
+.decay-bar {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.decay-green {
+  background-color: var(--clipper-decay-green);
+}
+
+.decay-yellow {
+  background-color: var(--clipper-decay-yellow);
+}
+
+.decay-red {
+  background-color: var(--clipper-decay-red);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--pico-muted-color);
+  font-size: 0.85rem;
+}
+
+/* Modal styling */
+dialog article {
+  max-width: 500px;
+  width: 100%;
+}
