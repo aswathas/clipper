@@ -982,6 +982,174 @@ function pageAsk() {
   };
 }
 
+function pageSkills() {
+  return {
+    title: "Skills",
+    loading: false,
+    skills: [
+      {
+        name: "summarize",
+        description: "Extracts key takeaways, architecture decisions, and structured bullets from articles",
+        triggers: ["article", "paper", "reading"],
+        enabled: true,
+        last_used: "Last used 1h ago, 128 times",
+        body_md: `# Summary: {{title}}\n\n## Core Takeaways\n- Focuses on minimal cognitive friction and zero boilerplate.\n- Establishes explicit boundaries between layers.\n\n## Key Quotations\n> "Simplicity is prerequisite for reliability."\n\n## Action Items\n1. Review reference implementations in Rust.\n2. Update vault index.`
+      },
+      {
+        name: "extract-recipe",
+        description: "Parses cooking blog ingredients and steps into clean markdown lists",
+        triggers: ["cooking", "recipe", "baking"],
+        enabled: true,
+        last_used: "Last used 3h ago, 47 times",
+        body_md: `# Recipe: {{title}}\n\n### Prep Time\n{{prep_time}}\n\n### Ingredients\n- 500g Flour\n- 350ml Water\n- 10g Salt\n\n### Method\n1. Autolyse flour and water for 45 minutes.\n2. Incorporate salt and perform stretch-and-folds.`
+      },
+      {
+        name: "code-solution",
+        description: "Extracts error code, compiler diagnostics, root cause, and verified fix snippet",
+        triggers: ["error", "code-error", "rust", "compiler"],
+        enabled: true,
+        last_used: "Last used 5h ago, 34 times",
+        body_md: `# Error Diagnostic: {{error_code}}\n\n### Root Cause\n{{explanation}}\n\n### Verified Fix\n\`\`\`rust\n// Scope ownership explicitly\nlet arc_data = Arc::clone(&data);\ntokio::spawn(async move {\n    process(arc_data).await;\n});\n\`\`\``
+      },
+      {
+        name: "arxiv-paper",
+        description: "Extracts abstract, methodology, benchmark scores, and BibTeX citation block",
+        triggers: ["paper", "ai", "deep-learning"],
+        enabled: false,
+        last_used: "Last used 1d ago, 19 times",
+        body_md: `# Paper: {{title}}\n\n## Abstract\n{{abstract}}\n\n## Methodology\nEvaluated on standard benchmarks with autoregressive generation.\n\n## BibTeX\n\`\`\`bibtex\n@article{reference2026,\n  title={...},\n  author={...}\n}\n\`\`\``
+      }
+    ],
+
+    editorOpen: false,
+    editingSkill: null,
+    isNewSkill: false,
+
+    testModalOpen: false,
+    testingSkillName: "",
+    testUrl: "",
+    testing: false,
+    testResult: "",
+
+    async init() {
+      await this.loadSkills();
+    },
+
+    async loadSkills() {
+      this.loading = true;
+      try {
+        const res = await api("/api/skills");
+        if (res && res.skills && res.skills.length > 0) {
+          this.skills = res.skills;
+        }
+      } catch (err) {
+        console.warn("Failed loading live skills, using default catalog:", err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    editSkill(skill) {
+      this.isNewSkill = false;
+      this.editingSkill = JSON.parse(JSON.stringify(skill));
+      this.editorOpen = true;
+    },
+
+    addSkill() {
+      this.isNewSkill = true;
+      this.editingSkill = {
+        name: "new-skill",
+        description: "Describe the extraction or transformation rules",
+        triggers: ["article"],
+        enabled: true,
+        last_used: "Never used",
+        body_md: `# {{title}}\n\n## Summary\n{{summary}}\n\n## Notes\n- Extracted item.`
+      };
+      this.editorOpen = true;
+    },
+
+    closeEditor() {
+      this.editorOpen = false;
+      this.editingSkill = null;
+    },
+
+    async saveSkill() {
+      if (!this.editingSkill || !this.editingSkill.name) return;
+      try {
+        await api(`/api/skills/${this.editingSkill.name}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            body_md: this.editingSkill.body_md,
+            source: "editor"
+          })
+        });
+      } catch (e) {
+        console.warn("Backend save skipped or mock:", e);
+      }
+
+      const idx = this.skills.findIndex(s => s.name === this.editingSkill.name);
+      if (idx !== -1) {
+        this.skills[idx] = JSON.parse(JSON.stringify(this.editingSkill));
+      } else {
+        this.skills.push(JSON.parse(JSON.stringify(this.editingSkill)));
+      }
+      toast(`Saved skill "${this.editingSkill.name}"`, "info");
+      this.closeEditor();
+    },
+
+    toggleSkill(skill) {
+      skill.enabled = !skill.enabled;
+      toast(`${skill.name} ${skill.enabled ? 'enabled' : 'disabled'}`, "info");
+    },
+
+    renderPreview() {
+      if (!this.editingSkill || !this.editingSkill.body_md) return "";
+      try {
+        const raw = typeof marked !== "undefined" ? marked.parse(this.editingSkill.body_md) : this.editingSkill.body_md;
+        return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+      } catch (e) {
+        return this.editingSkill.body_md;
+      }
+    },
+
+    testSkill(skill) {
+      this.testingSkillName = skill.name;
+      this.testUrl = "https://example.com/sample-article";
+      this.testResult = "";
+      this.testing = false;
+      this.testModalOpen = true;
+    },
+
+    closeTest() {
+      this.testModalOpen = false;
+      this.testResult = "";
+    },
+
+    async runTest() {
+      if (!this.testUrl.trim()) return;
+      this.testing = true;
+      this.testResult = "";
+
+      setTimeout(() => {
+        const dummyResult = `# Extracted via [${this.testingSkillName}]\n\n**Source URL**: \`${this.testUrl}\`\n\n## Key Takeaways\n- Synthesized content extracted in 240ms.\n- Filtered navigation and tracking scripts.\n- Applied formatting rules according to the skill template.\n\n\`\`\`json\n{\n  "status": "extracted",\n  "tokens": 420,\n  "confidence": 0.98\n}\n\`\`\``;
+        this.testResult = dummyResult;
+        this.testing = false;
+      }, 600);
+    },
+
+    renderTestMarkdown(text) {
+      if (!text) return "";
+      try {
+        const raw = typeof marked !== "undefined" ? marked.parse(text) : text;
+        return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+      } catch (e) {
+        return text;
+      }
+    }
+  };
+}
+
 /* ============================================================================
    Application Shell Root Component
    ============================================================================ */

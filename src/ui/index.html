@@ -692,11 +692,123 @@
           </div>
         </section>
 
-        <section x-show="currentPage === 'skills'">
+        <!-- Skills Page (DESIGN.md Section 7) -->
+        <section x-show="currentPage === 'skills'" x-data="pageSkills()">
           <div class="top-bar">
             <div class="top-bar-titles">
               <h2 class="top-bar-title">Skills</h2>
               <p class="top-bar-desc">Custom extraction templates, agents, and automation workflows.</p>
+            </div>
+            <div class="top-bar-actions">
+              <button type="button" class="btn btn-primary btn-sm" @click="addSkill()">+ Add skill</button>
+            </div>
+          </div>
+
+          <!-- Skills Card List -->
+          <div class="skills-list">
+            <template x-for="skill in skills" :key="skill.name">
+              <div class="skill-card">
+                <div class="skill-info">
+                  <div class="skill-title-row">
+                    <h3 class="skill-title" x-text="skill.name"></h3>
+                    <template x-for="trig in (skill.triggers || [])" :key="trig">
+                      <span class="skill-trigger-badge" x-text="'@' + trig"></span>
+                    </template>
+                  </div>
+                  <p class="skill-desc" x-text="skill.description"></p>
+                  <div class="skill-meta-row">
+                    <span x-text="skill.last_used || 'Active'"></span>
+                    <span>·</span>
+                    <span :style="{ color: skill.enabled ? 'var(--decay-fresh)' : 'var(--mute-2)' }" x-text="skill.enabled ? '● Enabled' : '○ Disabled'"></span>
+                  </div>
+                </div>
+
+                <div class="skill-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="testSkill(skill)">Test</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="editSkill(skill)">Edit</button>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="toggleSkill(skill)" x-text="skill.enabled ? 'Disable' : 'Enable'"></button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Split-View Slide-over Editor (DESIGN.md Section 7) -->
+          <div x-show="editorOpen"
+               x-cloak
+               @keydown.escape.window="closeEditor()"
+               style="position: relative; z-index: 920;">
+            <div class="slideover-backdrop" @click="closeEditor()"></div>
+            <div class="slideover-panel skill-editor-panel" @click.stop role="dialog" aria-modal="true">
+              <div class="slideover-header">
+                <div style="display: flex; align-items: center; gap: var(--sp-3);">
+                  <button type="button" class="slideover-close-btn" @click="closeEditor()" aria-label="Close editor">✕</button>
+                  <h3 style="font-family: var(--font-display); font-size: var(--fs-lg); margin: 0; color: var(--ink);" x-text="isNewSkill ? 'New Skill' : 'Edit Skill: ' + (editingSkill ? editingSkill.name : '')"></h3>
+                </div>
+                <div style="display: flex; gap: var(--sp-2);">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="closeEditor()">Cancel</button>
+                  <button type="button" class="btn btn-primary btn-sm" @click="saveSkill()">Save</button>
+                </div>
+              </div>
+
+              <div class="slideover-body" style="padding: var(--sp-5);" x-show="editingSkill">
+                <div class="skill-split-view">
+                  <!-- Left: Metadata form & Markdown editor -->
+                  <div class="skill-edit-pane">
+                    <div>
+                      <label style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2); margin-bottom: 4px; display: block;">Skill Name (slug)</label>
+                      <input type="text" x-model="editingSkill.name" :disabled="!isNewSkill" style="margin: 0; padding: var(--sp-2); font-size: var(--fs-sm); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink);" />
+                    </div>
+
+                    <div>
+                      <label style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2); margin-bottom: 4px; display: block;">Description</label>
+                      <input type="text" x-model="editingSkill.description" style="margin: 0; padding: var(--sp-2); font-size: var(--fs-sm); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink);" />
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; flex: 1; min-height: 280px;">
+                      <label style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2); margin-bottom: 4px; display: block;">Prompt Template (Markdown)</label>
+                      <textarea class="skill-editor-textarea" x-model="editingSkill.body_md"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- Right: Sanitized Live Preview (DOMPurify) -->
+                  <div class="skill-preview-pane">
+                    <div style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute); margin-bottom: var(--sp-3);">
+                      Live Preview (DOMPurify)
+                    </div>
+                    <div class="slideover-markdown" x-html="renderPreview()"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Test Skill Runner Modal -->
+          <div x-show="testModalOpen"
+               x-cloak
+               @keydown.escape.window="closeTest()"
+               style="position: relative; z-index: 930;">
+            <div class="slideover-backdrop" @click="closeTest()"></div>
+            <div class="slideover-panel" style="width: 580px;" @click.stop role="dialog" aria-modal="true">
+              <div class="slideover-header">
+                <h3 style="font-family: var(--font-display); font-size: var(--fs-lg); margin: 0; color: var(--ink);" x-text="'Test Skill: ' + testingSkillName"></h3>
+                <button type="button" class="slideover-close-btn" @click="closeTest()">✕</button>
+              </div>
+              <div class="slideover-body">
+                <div>
+                  <label style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-2); display: block;">Paste URL to test extraction:</label>
+                  <div style="display: flex; gap: var(--sp-2);">
+                    <input type="url" x-model="testUrl" style="flex: 1; margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink);" />
+                    <button type="button" class="btn btn-primary btn-sm" :disabled="testing" @click="runTest()" x-text="testing ? 'Extracting…' : 'Run Test'"></button>
+                  </div>
+                </div>
+
+                <div x-show="testResult" style="margin-top: var(--sp-4);">
+                  <div class="section-caption" style="margin-bottom: var(--sp-2);">Extraction Result Preview</div>
+                  <div style="background-color: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-4); max-height: 380px; overflow-y: auto;">
+                    <div class="slideover-markdown" x-html="renderTestMarkdown(testResult)"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
