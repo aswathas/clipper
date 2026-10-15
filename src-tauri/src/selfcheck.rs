@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::{
     capture::{self, CaptureOutcome},
@@ -1401,6 +1401,260 @@ pub fn integration_api() -> i32 {
         0
     } else {
         println!("integration api gates: {failed} of {total} FAILED");
+        1
+    }
+}
+
+// ========================================================= HAG-14 self-check
+
+/// HAG-14 (S4): Skills CRUD — files are the truth, the table is a cache.
+pub fn run_hag14() -> i32 {
+    use crate::{db, routes_skills, server};
+
+    println!("hag14 self-check");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    let root = std::env::temp_dir().join(format!("clipper-hag14-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, Config, db::Db), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.skills.dir = temp(root.join("skills"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+
+        // A skill the user dropped in by hand: the file store is the truth.
+        fs::write(
+            cfg.skills_dir().join("manual.md"),
+            "---\ntitle: Manual\n---\n\n# Manual skill\n",
+        )
+        .map_err(|e| e.to_string())?;
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+        let synced = routes_skills::sync(&cfg, &index_db).map_err(|e| e.to_string())?;
+        if synced != 1 {
+            return Err(format!("startup scan indexed {synced} skills, expected 1"));
+        }
+
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new("hag14".to_string())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(server::serve(listener, state));
+        });
+        wait_for_server(addr.port())?;
+        Ok((addr.port(), cfg, index_db))
+    })();
+
+    let (port, cfg, index_db) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+    let skills_dir = cfg.skills_dir();
+
+    // 1. a file on disk is listed, with a token estimate
+    gate!("files_on_disk_are_listed", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/skills", None)?;
+        if status != 200 {
+            return Err(format!("GET /api/skills -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["total"].as_i64() != Some(1) {
+            return Err(format!("expected 1 skill, got {} ({body})", payload["total"]));
+        }
+        let skill = &payload["skills"][0];
+        if skill["name"] != "manual" {
+            return Err(format!("name = {}", skill["name"]));
+        }
+        if skill["title"] != "Manual" {
+            return Err(format!("title = {}", skill["title"]));
+        }
+        if skill["token_estimate"].as_i64().unwrap_or(0) <= 0 {
+            return Err(format!("token_estimate = {}", skill["token_estimate"]));
+        }
+        Ok(())
+    })());
+
+    // 2. PUT writes the file and indexes it
+    gate!("put_creates_a_skill", (|| -> Result<(), String> {
+        let (status, body) = http(
+            port,
+            "PUT",
+            "/api/skills/demo",
+            Some(r#"{"body_md":"---\ntitle: Demo\n---\n\n# Demo\n\nSome body text.\n"}"#),
+        )?;
+        if status != 200 {
+            return Err(format!("PUT -> {status} {body}"));
+        }
+        if !skills_dir.join("demo.md").is_file() {
+            return Err("the skill file was not written".into());
+        }
+        let (_, body) = http(port, "GET", "/api/skills", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["total"].as_i64() != Some(2) {
+            return Err(format!("expected 2 skills, got {}", payload["total"]));
+        }
+        Ok(())
+    })());
+
+    // 3. markdown renders; embedded raw HTML is dropped
+    gate!("raw_html_is_stripped", (|| -> Result<(), String> {
+        let body = json!({
+            "body_md": "---\ntitle: Unsafe\n---\n\n# Heading\n\n<script>alert(1)</script>\n\nSafe paragraph.\n"
+        })
+        .to_string();
+        let (status, _) = http(port, "PUT", "/api/skills/unsafe", Some(&body))?;
+        if status != 200 {
+            return Err(format!("PUT /api/skills/unsafe -> {status}"));
+        }
+        let (status, body) = http(port, "GET", "/api/skills/unsafe", None)?;
+        if status != 200 {
+            return Err(format!("GET -> {status}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let html = payload["html"].as_str().ok_or("no html in the payload")?;
+        if !html.contains("<h1") {
+            return Err(format!("markdown was not rendered: {html}"));
+        }
+        if html.to_ascii_lowercase().contains("<script") {
+            return Err(format!("raw HTML survived rendering: {html}"));
+        }
+        if !payload["body_md"].as_str().unwrap_or("").contains("<script>") {
+            return Err("the stored body should keep the original markdown".into());
+        }
+        Ok(())
+    })());
+
+    // 4. a name can never escape the skills directory
+    gate!("path_traversal_is_rejected", (|| -> Result<(), String> {
+        for name in ["..evil", "a..b", "bad name", "bad%2Fname"] {
+            let (status, _) = http(
+                port,
+                "PUT",
+                &format!("/api/skills/{name}"),
+                Some(r#"{"body_md":"x"}"#),
+            )?;
+            if status != 400 && status != 404 {
+                return Err(format!("PUT {name} -> {status}, expected 400/404"));
+            }
+        }
+        // Nothing escaped.
+        let escaped = root.join("evil.md");
+        if escaped.exists() {
+            return Err(format!("a write escaped to {}", escaped.display()));
+        }
+        if root.parent().map(|p| p.join("evil.md").exists()).unwrap_or(false) {
+            return Err("a write escaped the temp dir".into());
+        }
+        Ok(())
+    })());
+
+    // 5. DELETE removes both the file and the row
+    gate!("delete_removes_file_and_row", (|| -> Result<(), String> {
+        let (status, body) = http(port, "DELETE", "/api/skills/demo", None)?;
+        if status != 200 {
+            return Err(format!("DELETE -> {status} {body}"));
+        }
+        if skills_dir.join("demo.md").exists() {
+            return Err("the file is still on disk".into());
+        }
+        let (_, body) = http(port, "GET", "/api/skills", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["total"].as_i64() != Some(2) {
+            return Err(format!("expected 2 skills left, got {}", payload["total"]));
+        }
+        let (status, _) = http(port, "DELETE", "/api/skills/demo", None)?;
+        if status != 404 {
+            return Err(format!("second DELETE -> {status}, expected 404"));
+        }
+        Ok(())
+    })());
+
+    // 6. rescan picks up a hand-written file and drops a deleted one
+    gate!("rescan_tracks_the_directory", (|| -> Result<(), String> {
+        fs::write(skills_dir.join("hand.md"), "# Hand written\n").map_err(|e| e.to_string())?;
+        let (status, body) = http(port, "POST", "/api/skills/rescan", Some("{}"))?;
+        if status != 200 {
+            return Err(format!("rescan -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["scanned"].as_i64() != Some(3) {
+            return Err(format!("rescan scanned {} ({body})", payload["scanned"]));
+        }
+
+        fs::remove_file(skills_dir.join("manual.md")).map_err(|e| e.to_string())?;
+        let (_, body) = http(port, "POST", "/api/skills/rescan", Some("{}"))?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload["scanned"].as_i64() != Some(2) {
+            return Err(format!("rescan scanned {} after a delete", payload["scanned"]));
+        }
+        let (_, body) = http(port, "GET", "/api/skills/manual", None)?;
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if payload.get("name").is_some() {
+            return Err("a deleted file is still served".into());
+        }
+        Ok(())
+    })());
+
+    // 7. the index really is rebuilt from disk
+    gate!("index_matches_the_directory", (|| -> Result<(), String> {
+        let conn = index_db.lock().unwrap_or_else(|p| p.into_inner());
+        let names: Vec<String> = crate::db::list_skills(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|skill| skill.name)
+            .collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        if sorted != vec!["hand".to_string(), "unsafe".to_string()] {
+            return Err(format!("table holds {names:?}"));
+        }
+        Ok(())
+    })());
+
+    if failed == 0 {
+        println!("hag14 self-check: OK ({total} gates)");
+        0
+    } else {
+        println!("hag14 self-check: {failed} of {total} FAILED");
         1
     }
 }

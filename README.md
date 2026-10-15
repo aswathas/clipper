@@ -187,6 +187,44 @@ makes a portable install possible.
 
 ---
 
+## API
+
+Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard.
+
+| Route | Returns |
+|---|---|
+| `GET /healthz` | `200 ok` |
+| `GET /api/items?limit=50&offset=0&type=&tag=&q=` | `{items, total}`; `q` is an FTS5 phrase match, `type`/`tag` are exact |
+| `GET /api/items/{id}` | one item, or `404` |
+| `POST /api/items/{id}/status` `{status}` | `{ok:true}`; status must be `inbox`/`reading`/`done`/`archived`/`deleted` |
+| `POST /api/items/{id}/tags` `{tags:[…]}` | `{ok:true, tags}` |
+| `POST /api/clips` `{url, type?}` | `{id, status:"queued"}`; appends to `inbox.jsonl` |
+| `GET /api/today` | `{items}`, newest 3 with status `inbox` |
+| `GET /api/stats` | `{total, by_type, by_status, stale_30d}` |
+| `GET /pair` | the phone PWA page |
+| `GET /pair.png` | QR code for the pairing URL, as `image/png` |
+| `GET /qr` | the small page shown by the tray's *Show QR* item |
+| `GET /pwa/app.js`, `GET /pwa/manifest.json` | PWA assets |
+| `POST /save` `{url}` | same as `/api/clips`; **requires** the pairing token in `?token=` or `X-Clipper-Token`, else `401` |
+| `GET /api/skills` | `{skills, total}` from `~/.clipper/skills/` |
+| `GET /api/skills/{name}` | one skill plus `html` (markdown rendered, embedded raw HTML stripped) |
+| `PUT /api/skills/{name}` `{body_md, source?}` | writes the file and re-indexes it |
+| `DELETE /api/skills/{name}` | removes the file and its row |
+| `POST /api/skills/rescan` | rebuilds the skill index from the directory |
+
+`items.saved_at` is Unix **seconds** as a JSON *number* — the dashboard multiplies by 1000
+before formatting.
+
+Skill names are slugs (`[A-Za-z0-9._-]`, no `..`), so a name can never escape the skills
+directory. Skill markdown is rendered with `pulldown-cmark` and the embedded raw-HTML
+events are dropped server-side; the client runs DOMPurify as well.
+
+CORS: only `http://127.0.0.1:7137`, `http://localhost:7137` and the app's own webview
+origins get CORS headers; everything else is default-deny.
+
+If the port is already in use Clipper logs the address it could not bind and exits
+non-zero — it never silently picks another port.
+
 ## Architecture
 
 One Tauri 2 binary: Rust backend, vanilla HTML/JS frontend, no framework and no bundler.

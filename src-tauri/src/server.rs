@@ -76,6 +76,8 @@ pub fn router(state: AppState) -> Router {
         .route("/pwa/app.js", get(pair_js))
         .route("/pwa/manifest.json", get(pair_manifest))
         .route("/save", post(save_clip))
+        // slice routers
+        .merge(crate::routes_skills::router())
         .layer(middleware::from_fn(cors))
         .with_state(state)
 }
@@ -150,14 +152,14 @@ async fn cors(request: axum::extract::Request, next: Next) -> Response {
 
 // ------------------------------------------------------------------- errors
 
-struct ApiError(StatusCode, String);
+pub struct ApiError(StatusCode, String);
 
 impl ApiError {
-    fn new(code: StatusCode, message: impl Into<String>) -> Self {
+    pub fn new(code: StatusCode, message: impl Into<String>) -> Self {
         Self(code, message.into())
     }
 
-    fn internal(e: impl std::fmt::Display) -> Self {
+    pub fn internal(e: impl std::fmt::Display) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
     }
 }
@@ -168,7 +170,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-fn with_db<T>(
+pub fn with_db<T>(
     state: &AppState,
     query: impl FnOnce(&rusqlite::Connection) -> rusqlite::Result<T>,
 ) -> Result<T, ApiError> {

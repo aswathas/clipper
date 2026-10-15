@@ -107,6 +107,17 @@ CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
   INSERT INTO items_fts(rowid, title, summary, tags, url)
   VALUES (new.rowid, new.title, new.summary, new.tags, new.url);
 END;
+
+-- Skills (S4). The markdown files under ~/.clipper/skills are the source of
+-- truth; this table is a cache rebuilt from them.
+CREATE TABLE IF NOT EXISTS skills (
+  name TEXT PRIMARY KEY,
+  source TEXT,
+  body_md TEXT NOT NULL DEFAULT '',
+  frontmatter_json TEXT,
+  token_estimate INTEGER NOT NULL DEFAULT 0,
+  last_modified INTEGER NOT NULL DEFAULT 0
+);
 "#,
     )
 }
@@ -272,6 +283,94 @@ pub fn set_tags(conn: &Connection, id: &str, tags: &[String]) -> rusqlite::Resul
 
 fn tags_to_json(tags: &[String]) -> String {
     serde_json::to_string(tags).unwrap_or_else(|_| "[]".to_string())
+}
+
+// ------------------------------------------------------------------- skills
+
+/// A skill file, mirrored into the index (S4).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Skill {
+    pub name: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub body_md: String,
+    pub token_estimate: i64,
+    pub last_modified: i64,
+}
+
+pub fn upsert_skill(conn: &Connection, skill: &Skill) -> rusqlite::Result<()> {
+    let frontmatter = serde_json::json!({
+        "title": skill.title,
+        "description": skill.description,
+    })
+    .to_string();
+
+    conn.execute(
+        "INSERT INTO skills (name, source, body_md, frontmatter_json, token_estimate, last_modified)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(name) DO UPDATE SET
+           source = excluded.source,
+           body_md = excluded.body_md,
+           frontmatter_json = excluded.frontmatter_json,
+           token_estimate = excluded.token_estimate,
+           last_modified = excluded.last_modified",
+        params![
+            skill.name,
+            skill.source,
+            skill.body_md,
+            frontmatter,
+            skill.token_estimate,
+            skill.last_modified,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_skills(conn: &Connection) -> rusqlite::Result<Vec<Skill>> {
+    let mut statement = conn.prepare(
+        "SELECT name, source, body_md, frontmatter_json, token_estimate, last_modified
+         FROM skills ORDER BY name",
+    )?;
+    let rows = statement.query_map([], row_to_skill)?;
+    rows.collect()
+}
+
+pub fn get_skill(conn: &Connection, name: &str) -> rusqlite::Result<Option<Skill>> {
+    conn.query_row(
+        "SELECT name, source, body_md, frontmatter_json, token_estimate, last_modified
+         FROM skills WHERE name = ?1",
+        params![name],
+        row_to_skill,
+    )
+    .optional()
+}
+
+pub fn delete_skill(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+    Ok(conn.execute("DELETE FROM skills WHERE name = ?1", params![name])? > 0)
+}
+
+fn row_to_skill(row: &rusqlite::Row<'_>) -> rusqlite::Result<Skill> {
+    let frontmatter: Option<String> = row.get(3)?;
+    let parsed: serde_json::Value = frontmatter
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Ok(Skill {
+        name: row.get(0)?,
+        source: row.get(1)?,
+        body_md: row.get(2)?,
+        title: parsed.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        description: parsed
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        token_estimate: row.get(4)?,
+        last_modified: row.get(5)?,
+    })
 }
 
 /// FTS5 MATCH wants a phrase; wrap the user's text so their punctuation cannot

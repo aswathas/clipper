@@ -22,6 +22,7 @@ pub mod memory;
 pub mod pairing;
 pub mod prompts;
 pub mod queue;
+pub mod routes_skills;
 pub mod screenshot;
 pub mod selfcheck;
 pub mod server;
@@ -305,6 +306,13 @@ pub fn run() {
             let index_db: db::Db = Arc::new(Mutex::new(db::open(
                 &config::state_dir().join("index.db"),
             )?));
+
+            // ---- skills are files; the table is a cache of them ----
+            match routes_skills::sync(&cfg, &index_db) {
+                Ok(count) => println!("Clipper: {count} skill(s) indexed"),
+                Err(e) => eprintln!("Clipper: skills scan failed: {e}"),
+            }
+
             let indexer = Arc::new(vaultwatch::Indexer::new(
                 cfg.clone(),
                 Arc::clone(&index_db),

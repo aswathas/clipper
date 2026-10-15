@@ -72,6 +72,7 @@ pub struct Config {
     pub queue: QueueCfg,
     pub server: ServerCfg,
     pub prompts: PromptsCfg,
+    pub skills: SkillsCfg,
 }
 
 impl Default for Config {
@@ -82,6 +83,22 @@ impl Default for Config {
             queue: QueueCfg::default(),
             server: ServerCfg::default(),
             prompts: PromptsCfg::default(),
+            skills: SkillsCfg::default(),
+        }
+    }
+}
+
+/// Where skill markdown files live.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkillsCfg {
+    pub dir: String,
+}
+
+impl Default for SkillsCfg {
+    fn default() -> Self {
+        Self {
+            dir: "~/.clipper/skills".into(),
         }
     }
 }
@@ -253,6 +270,10 @@ impl Config {
         expand_tilde(&self.queue.staging_dir)
     }
 
+    pub fn skills_dir(&self) -> PathBuf {
+        expand_tilde(&self.skills.dir)
+    }
+
     pub fn extract_prompt_path(&self) -> PathBuf {
         expand_tilde(&self.prompts.extract)
     }
@@ -284,6 +305,7 @@ impl Config {
             self.queue_dir(),
             self.staging_dir(),
             self.vault_inbox(),
+            self.skills_dir(),
             self.extract_prompt_path()
                 .parent()
                 .map(Path::to_path_buf)
