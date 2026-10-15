@@ -639,13 +639,19 @@
           <button 
             type="button" 
             class="settings-tab-btn" 
+            :class="{ 'active': activeTab === 'self' }" 
+            @click="setTab('self')"
+          >Self-Improvement</button>
+          <button 
+            type="button" 
+            class="settings-tab-btn" 
             :class="{ 'active': activeTab === 'daemon' }" 
             @click="setTab('daemon')"
           >Daemon & Stats</button>
         </nav>
 
         <!-- Memory / Soul / User File Viewers -->
-        <div x-show="activeTab !== 'daemon'">
+        <div x-show="['soul', 'memory', 'user'].includes(activeTab)">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; background: var(--bg-surface); padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid var(--border-color);">
             <div style="font-size: 0.85rem; color: var(--text-secondary);">
               <span style="font-weight: 600; text-transform: uppercase;" x-text="activeTab + '.md'"></span>
@@ -680,6 +686,71 @@
               style="width: 100%; min-height: 450px; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; padding: 1rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); resize: vertical;"
               placeholder="Enter markdown..."
             ></textarea>
+          </div>
+        </div>
+
+        <!-- Self-Improvement Tab (HAG-16) -->
+        <div x-show="activeTab === 'self'">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; background: var(--bg-surface); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border-color);">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div class="live-indicator">
+                <span class="live-dot" :class="{ 'connecting': !store.sseConnected }"></span>
+                <span x-text="store.sseConnected ? 'Live Learning Stream Active' : 'Connecting SSE...'"></span>
+              </div>
+              <span style="font-size: 0.85rem; color: var(--text-muted);" x-text="'Tracking ' + patterns.length + ' patterns & ' + topics.length + ' topics'"></span>
+            </div>
+            <button type="button" class="btn-clip" @click="recomputeSelf()">Recompute Patterns</button>
+          </div>
+
+          <!-- User Topics Section -->
+          <div class="markdown-view-card" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1.05rem;">Discovered User Topics</h3>
+              <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="topics.length + ' topics indexed'"></span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+              Semantic clusters extracted autonomously from your saved clips.
+            </p>
+            <div class="topics-cloud">
+              <template x-for="t in topics" :key="t.topic || t.name">
+                <span class="topic-tag">
+                  <span x-text="t.topic || t.name"></span>
+                  <small style="opacity: 0.7; margin-left: 0.25rem;" x-text="'(' + (t.weight || t.count || 1) + ')'"></small>
+                </span>
+              </template>
+              <div x-show="topics.length === 0" style="color: var(--text-muted); font-size: 0.85rem;">
+                No topics extracted yet. Save more clips or trigger recompute.
+              </div>
+            </div>
+          </div>
+
+          <!-- User Patterns Section -->
+          <div class="markdown-view-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1.05rem;">Learned Behavioral Patterns</h3>
+              <span style="font-size: 0.8rem; color: var(--text-muted);" x-text="patterns.length + ' patterns active'"></span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+              Habits and preferences detected across your clipping workflow. New patterns stream via SSE in real time.
+            </p>
+            <div class="patterns-grid">
+              <template x-for="p in patterns" :key="p.id || p.name">
+                <div class="pattern-card">
+                  <div class="pattern-header">
+                    <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);" x-text="p.name"></h4>
+                    <span class="pattern-confidence" x-text="Math.round((p.confidence || 0.8) * 100) + '% match'"></span>
+                  </div>
+                  <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0;" x-text="p.description || p.pattern"></p>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; justify-content: space-between; margin-top: auto; padding-top: 0.5rem;">
+                    <span x-text="'Category: ' + (p.category || 'General')"></span>
+                    <span x-text="formatDate((p.created_at || Date.now() / 1000) * 1000)"></span>
+                  </div>
+                </div>
+              </template>
+              <div x-show="patterns.length === 0" style="color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1;">
+                No learned patterns detected yet.
+              </div>
+            </div>
           </div>
         </div>
 

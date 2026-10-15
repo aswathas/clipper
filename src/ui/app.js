@@ -182,7 +182,30 @@ const MOCK_DATA = {
       content: "# Active\n- Clipper development v0.2 second brain\n\n# Recent focus\n- Alpine.js frontend UI slices\n- SQLite FTS5 full text search\n\n# Today's plan\n- Finish S5 memory/soul routes\n- SSE integration",
       etag: "etag-memory-1"
     }
-  }
+  },
+  patterns: [
+    {
+      id: "pat-1",
+      name: "Weekend Deep Dives",
+      confidence: "94%",
+      rule: "Clips exceeding 1500 words captured on weekends receive #deep-dive tag.",
+      created_at: "2026-10-15"
+    },
+    {
+      id: "pat-2",
+      name: "Rust System Architecture",
+      confidence: "88%",
+      rule: "Articles discussing memory safety, tokio, and axum automatically cross-reference in vault.",
+      created_at: "2026-10-14"
+    }
+  ],
+  topics: [
+    { name: "Rust", weight: "34%" },
+    { name: "Multi-Agent Hives", weight: "28%" },
+    { name: "SQLite FTS5", weight: "18%" },
+    { name: "Alpine.js UI", weight: "12%" },
+    { name: "Tauri v2", weight: "8%" }
+  ]
 };
 
 // API Client
@@ -355,6 +378,24 @@ function mockApiHandler(path, opts = {}) {
     };
     return { ok: true, etag: newEtag };
   }
+  if (path.startsWith("/api/self/patterns") && method === "GET") {
+    return { patterns: [...(MOCK_DATA.patterns || [])] };
+  }
+  if (path.startsWith("/api/self/topics") && method === "GET") {
+    return { topics: [...(MOCK_DATA.topics || [])] };
+  }
+  if (path === "/api/self/recompute" && method === "POST") {
+    const newPat = {
+      id: `pat-${Date.now()}`,
+      name: "Autonomous Agent Pairing",
+      confidence: "91%",
+      rule: "Clips with agent coordination patterns cross-linked with PROTOCOL.md.",
+      created_at: new Date().toISOString().split("T")[0]
+    };
+    if (!MOCK_DATA.patterns) MOCK_DATA.patterns = [];
+    MOCK_DATA.patterns.unshift(newPat);
+    return { ok: true, pattern: newPat };
+  }
   if (path === "/healthz") {
     return "ok";
   }
@@ -472,6 +513,7 @@ const ClipStore = {
   showDetailDrawer: false,
   selectedIds: [],
   newTagInput: "",
+  sseConnected: false,
 
   openDetail(item) {
     this.activeDetailItem = JSON.parse(JSON.stringify(item));
@@ -1018,6 +1060,12 @@ function pageSettings() {
       user: { content: "", etag: "1", dirty: false }
     },
     stats: { total: 0, by_type: {}, by_status: {}, stale_30d: 0 },
+    patterns: [],
+    topics: [],
+    store: ClipStore,
+    formatDate(val) {
+      return formatDate(val);
+    },
 
     async init() {
       await this.loadAll();
@@ -1026,18 +1074,42 @@ function pageSettings() {
     async loadAll() {
       this.loading = true;
       try {
-        const [soulData, memData, userData, statsData] = await Promise.all([
+        const [soulData, memData, userData, statsData, patData, topData] = await Promise.all([
           api("/api/memory/soul").catch(() => ({ content: "", etag: "1" })),
           api("/api/memory/memory").catch(() => ({ content: "", etag: "1" })),
           api("/api/memory/user").catch(() => ({ content: "", etag: "1" })),
-          api("/api/stats").catch(() => ({}))
+          api("/api/stats").catch(() => ({})),
+          api("/api/self/patterns").catch(() => ({ patterns: [] })),
+          api("/api/self/topics").catch(() => ({ topics: [] }))
         ]);
         this.parts.soul = { content: soulData.content || "", etag: soulData.etag || "1", dirty: false };
         this.parts.memory = { content: memData.content || "", etag: memData.etag || "1", dirty: false };
         this.parts.user = { content: userData.content || "", etag: userData.etag || "1", dirty: false };
         this.stats = statsData || {};
+        this.patterns = patData.patterns || [];
+        this.topics = topData.topics || [];
       } finally {
         this.loading = false;
+      }
+    },
+
+    addPattern(pat) {
+      if (!this.patterns) this.patterns = [];
+      this.patterns.unshift(pat);
+    },
+
+    async recomputeSelf() {
+      toast("Recomputing self-improvement patterns...", "info");
+      try {
+        const res = await api("/api/self/recompute", { method: "POST" });
+        if (res.pattern) {
+          this.addPattern(res.pattern);
+          toast(`Discovered pattern: ${res.pattern.name}`, "saved");
+        } else {
+          toast("Self-improvement analysis up to date", "saved");
+        }
+      } catch (e) {
+        toast(`Recompute error: ${e.message}`, "error");
       }
     },
 
@@ -1131,11 +1203,66 @@ function clipperShell() {
     quickCaptureUrl: "",
     toasts: ToastManager.items,
     store: ClipStore,
+    sseConnected: false,
+    eventSource: null,
 
     init() {
       ThemeManager.init();
       this.initRouter();
       this.initKeybindings();
+      this.initSSE();
+    },
+
+    initSSE() {
+      if (typeof EventSource === "undefined") return;
+      if (window.__MOCK_API__ || !navigator.onLine) {
+        this.sseConnected = true;
+        ClipStore.sseConnected = true;
+        return;
+      }
+
+      try {
+        const es = new EventSource("/api/events");
+        this.eventSource = es;
+
+        es.onopen = () => {
+          this.sseConnected = true;
+          ClipStore.sseConnected = true;
+        };
+
+        es.onerror = () => {
+          this.sseConnected = false;
+          ClipStore.sseConnected = false;
+        };
+
+        const handlePatternAdded = (data) => {
+          const pat = typeof data === "string" ? JSON.parse(data) : data;
+          toast(`Pattern discovered: ${pat.name || pat.rule || "New user pattern"}`, "saved");
+          const settingsComp = document.querySelector('[x-data*="pageSettings"]');
+          if (settingsComp && settingsComp._x_dataStack) {
+            settingsComp._x_dataStack[0].addPattern(pat);
+          }
+        };
+
+        es.addEventListener("pattern_added", (e) => {
+          try {
+            handlePatternAdded(e.data);
+          } catch (err) {
+            console.warn("SSE parse error:", err);
+          }
+        });
+
+        es.onmessage = (e) => {
+          try {
+            const payload = JSON.parse(e.data);
+            if (payload.type === "pattern_added") {
+              handlePatternAdded(payload.pattern || payload);
+            }
+          } catch (err) {}
+        };
+      } catch (err) {
+        console.warn("EventSource setup failed:", err);
+      }
     },
 
     // --- Router ---
