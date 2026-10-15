@@ -2364,3 +2364,286 @@ pub fn run_hag17() -> i32 {
 fn pairing_token() -> String {
     "0123456789abcdef0123456789abcdef".to_string()
 }
+
+// ========================================================= HAG-18 self-check
+
+/// HAG-18 (S8): streaming chat about one clip, and provider stdout tolerance.
+pub fn run_hag18() -> i32 {
+    use crate::{db, drainer, server};
+
+    println!("hag18 self-check");
+    let mut failed = 0;
+    let mut total = 0;
+
+    macro_rules! gate {
+        ($name:expr, $body:expr) => {{
+            total += 1;
+            match $body {
+                Ok(()) => println!("  PASS {}", $name),
+                Err(e) => {
+                    failed += 1;
+                    println!("  FAIL {}: {}", $name, e);
+                }
+            }
+        }};
+    }
+
+    let root = std::env::temp_dir().join(format!("clipper-hag18-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+
+    let setup = (|| -> Result<(u16, Config, db::Db, PathBuf), String> {
+        let mut cfg = Config::default();
+        let temp = |p: PathBuf| p.to_string_lossy().into_owned();
+        cfg.vault.path = temp(root.join("Vault"));
+        cfg.queue.dir = temp(root.join("queue"));
+        cfg.queue.staging_dir = temp(root.join("staging"));
+        cfg.prompts.extract = temp(root.join("prompts").join("extract.md"));
+        cfg.skills.dir = temp(root.join("skills"));
+        cfg.memory.dir = temp(root.join("memory"));
+        cfg.server.bind = "127.0.0.1".into();
+        cfg.server.port = 0;
+        cfg.ensure_dirs().map_err(|e| e.to_string())?;
+        crate::memory::load_now(&cfg.memory_dir()).map_err(|e| e.to_string())?;
+
+        // Every chat spawns this provider, so point it at a prompt recorder that
+        // also emits one line of "model output".
+        cfg.provider.claude.command = "powershell".into();
+        cfg.provider.claude.args = vec![
+            "-NoProfile".into(),
+            "-Command".into(),
+            format!(
+                "$p = [Console]::In.ReadToEnd(); Set-Content -Path '{}' -Value $p; Write-Output 'Sockets are file descriptors.'",
+                root.join("chat-prompt.txt").display()
+            ),
+        ];
+
+        let index_db: db::Db = Arc::new(Mutex::new(
+            db::open(&root.join("index.db")).map_err(|e| e.to_string())?,
+        ));
+
+        // One indexed note, with a body on disk so the prompt has real context.
+        let note_path = cfg.vault_inbox().join("2026-01-01_1200_clipboard_chat1.md");
+        fs::create_dir_all(cfg.vault_inbox()).map_err(|e| e.to_string())?;
+        let note = "---\ntype: article\nsource: example.com\nurl: https://example.com/chat\n\
+                    saved_at: 2026-01-01T12:00:00Z\ntitle: Chatty clip\nsummary: About sockets.\n\
+                    tags: [networking]\n---\n\n# Chatty clip\n\nSockets are file descriptors.\n";
+        fs::write(&note_path, note).map_err(|e| e.to_string())?;
+        {
+            let conn = index_db.lock().unwrap_or_else(|p| p.into_inner());
+            let mut item = seed_item("chat1", "article", &["networking".to_string()]);
+            item.title = Some("Chatty clip".to_string());
+            item.summary = Some("About sockets.".to_string());
+            item.url = "https://example.com/chat".to_string();
+            item.vault_path = Some(note_path.to_string_lossy().into_owned());
+            db::upsert(&conn, &item).map_err(|e| e.to_string())?;
+        }
+
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+        let addr = listener.local_addr().map_err(|e| e.to_string())?;
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new(pairing_token())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(server::serve(listener, state));
+        });
+        wait_for_server(addr.port())?;
+        Ok((addr.port(), cfg, index_db, note_path))
+    })();
+
+    let (port, cfg, _index_db, _note) = match setup {
+        Ok(value) => value,
+        Err(e) => {
+            println!("  FAIL setup: {e}");
+            return 1;
+        }
+    };
+
+    // 1. stdout tolerance: strict shape, then the noisy real-world shape
+    gate!("provider_stdout_tolerance", (|| -> Result<(), String> {
+        let staging = cfg.staging_dir();
+        fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+        let a = staging.join("tolerance-a.md");
+        let b = staging.join("tolerance-b.md");
+        fs::write(&a, "# a\n").map_err(|e| e.to_string())?;
+        fs::write(&b, "# b\n").map_err(|e| e.to_string())?;
+
+        // (a) the strict shape still wins
+        let strict = format!("{}\n{}\n", a.display(), b.display());
+        let parsed = drainer::parse_provider_stdout(&strict, 2, &staging);
+        if parsed.recovered || parsed.paths.len() != 2 {
+            return Err(format!("strict shape: {parsed:?}"));
+        }
+
+        // (b) a real model wrapping the paths in prose
+        let noisy = format!(
+            "I fetched both pages and wrote the notes:\n{}\n{}\nLet me know if you want more.\n",
+            a.display(),
+            b.display()
+        );
+        let parsed = drainer::parse_provider_stdout(&noisy, 2, &staging);
+        if !parsed.recovered || parsed.paths.len() != 2 {
+            return Err(format!("noisy shape was not recovered: {parsed:?}"));
+        }
+        if parsed.paths[0] != a || parsed.paths[1] != b {
+            return Err(format!("recovered out of order: {:?}", parsed.paths));
+        }
+
+        // (c) rubbish stays rubbish
+        let parsed = drainer::parse_provider_stdout("no paths here at all", 2, &staging);
+        if !parsed.paths.is_empty() {
+            return Err(format!("garbage produced {:?}", parsed.paths));
+        }
+
+        // (d) a file outside staging is never accepted
+        let outside = root.join("outside.md");
+        fs::write(&outside, "# outside\n").map_err(|e| e.to_string())?;
+        let parsed = drainer::parse_provider_stdout(
+            &format!("wrote {}\n", outside.display()),
+            1,
+            &staging,
+        );
+        if !parsed.paths.is_empty() {
+            return Err("a path outside staging was accepted".into());
+        }
+        Ok(())
+    })());
+
+    // 2. chat streams SSE frames, then ends when the provider exits
+    gate!("chat_streams_sse_frames", (|| -> Result<(), String> {
+        let (status, body) = http(
+            port,
+            "POST",
+            "/api/items/chat1/chat",
+            Some(r#"{"message":"What are sockets?"}"#),
+        )?;
+        if status != 200 {
+            return Err(format!("chat -> {status} {body}"));
+        }
+        if !body.contains("event: chunk") {
+            return Err(format!("no chunk frame: {body:?}"));
+        }
+        if !body.contains("Sockets are file descriptors.") {
+            return Err(format!("the provider text never reached the stream: {body:?}"));
+        }
+        if !body.contains("event: done") {
+            return Err(format!("no terminal frame: {body:?}"));
+        }
+        if !body.contains("\"exit_code\":0") {
+            return Err(format!("unexpected exit code: {body:?}"));
+        }
+        Ok(())
+    })());
+
+    // 3. the prompt really carries persona, clip and question
+    gate!("chat_prompt_carries_context", (|| -> Result<(), String> {
+        let captured = root.join("chat-prompt.txt");
+        let prompt = fs::read_to_string(&captured)
+            .map_err(|e| format!("the provider recorded no prompt: {e}"))?;
+
+        for needle in [
+            "# Soul",
+            "# User",
+            "# Memory",
+            "Chatty clip",
+            "Sockets are file descriptors",
+            "What are sockets?",
+            "networking",
+        ] {
+            if !prompt.contains(needle) {
+                return Err(format!("the prompt is missing {needle:?}"));
+            }
+        }
+        Ok(())
+    })());
+
+    // 4. both turns are remembered, in order
+    gate!("chat_history_records_turns", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/api/chat/history?item_id=chat1", None)?;
+        if status != 200 {
+            return Err(format!("history -> {status} {body}"));
+        }
+        let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        let turns = payload["turns"].as_array().cloned().unwrap_or_default();
+        if turns.len() != 2 {
+            return Err(format!("expected 2 turns, got {} ({body})", turns.len()));
+        }
+        if turns[0]["role"] != "user" || turns[0]["content"] != "What are sockets?" {
+            return Err(format!("first turn = {}", turns[0]));
+        }
+        if turns[1]["role"] != "assistant" {
+            return Err(format!("second turn = {}", turns[1]));
+        }
+        if !turns[1]["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Sockets are file descriptors")
+        {
+            return Err(format!("the reply was not recorded: {}", turns[1]["content"]));
+        }
+        Ok(())
+    })());
+
+    // 5. the obvious failure modes
+    gate!("chat_rejects_bad_requests", (|| -> Result<(), String> {
+        let (status, _) = http(port, "POST", "/api/items/nope/chat", Some(r#"{"message":"hi"}"#))?;
+        if status != 404 {
+            return Err(format!("unknown item -> {status}, expected 404"));
+        }
+        let (status, _) = http(port, "POST", "/api/items/chat1/chat", Some(r#"{"message":"   "}"#))?;
+        if status != 400 {
+            return Err(format!("blank message -> {status}, expected 400"));
+        }
+        Ok(())
+    })());
+
+    // 6. the prompt builder is exposed and usable on its own
+    gate!("chat_prompt_builder_is_usable", (|| -> Result<(), String> {
+        use crate::db as index_db;
+        let item = index_db::list(
+            &_index_db.lock().unwrap_or_else(|p| p.into_inner()),
+            &index_db::Query {
+                limit: 1,
+                offset: 0,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| e.to_string())?
+        .0;
+        let item = item.first().ok_or("no indexed item to build a prompt for")?;
+
+        let state = server::AppState {
+            cfg: cfg.clone(),
+            db: Arc::clone(&_index_db),
+            queue_lock: Arc::new(Mutex::new(())),
+            token: Arc::new(std::sync::RwLock::new(pairing_token())),
+            lan_ip: "127.0.0.1".into(),
+        };
+        let prompt = crate::routes_chat::build_chat_prompt(&state, item, "explain");
+        if !prompt.starts_with("# Soul") {
+            return Err("the prompt does not start with the persona".into());
+        }
+        if !prompt.contains("## Question\nexplain") {
+            return Err("the question is not at the end of the prompt".into());
+        }
+        Ok(())
+    })());
+
+    if failed == 0 {
+        println!("hag18 self-check: OK ({total} gates)");
+        0
+    } else {
+        println!("hag18 self-check: {failed} of {total} FAILED");
+        1
+    }
+}

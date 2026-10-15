@@ -226,6 +226,20 @@ Bound to `[server] bind`/`port` (`127.0.0.1:7137`). `GET /` serves the dashboard
 | `POST /api/providers/{name}/test` | runs the provider once with a trivial prompt; reports exit code + first stdout line |
 | `GET /api/pairing` | `{lan_ip, port, pair_url, qr_path, token_length}` — never the token itself |
 | `POST /api/pairing/regenerate` | rotates the session token and emits `token_rotated` |
+| `POST /api/items/{id}/chat` `{message}` | SSE: `event: chunk` frames, then `event: done` |
+| `GET /api/chat/history?item_id=&limit=` | `{turns, total}` — session-scoped |
+
+Chat spawns the configured provider once per question with the full prompt template
+(soul + user + memory, skill context, the clip and its body, then the question) and
+normalises both plain-text and NDJSON stdout into `chunk` frames. A **bounded** channel
+between the reader thread and the stream is the backpressure: if the client stalls, the
+reader blocks instead of buffering the model's output without limit.
+
+Provider stdout is parsed tolerantly. The strict shape (exactly one existing staging path
+per input) is tried first; if the count does not match, Clipper rescans for `.md` paths
+under the staging directory and recovers the batch, logging when it does. Only files
+under staging are ever accepted, so a provider cannot talk Clipper into moving a file
+from somewhere else.
 
 The pairing token is **never** returned by the JSON API. It exists only inside the QR
 image served at `/pair.png`, so nothing but a scan of that image can read it.

@@ -31,6 +31,86 @@ pub struct BatchOutcome {
     pub reason: Option<String>,
 }
 
+/// What a provider's stdout turned into.
+#[derive(Debug, Clone, Default)]
+pub struct ParsedPaths {
+    /// One existing file per input, in order. Empty when parsing failed.
+    pub paths: Vec<PathBuf>,
+    /// True when the strict shape failed and the tolerant scan saved the batch.
+    pub recovered: bool,
+}
+
+/// Turn provider stdout into one existing file per input.
+///
+/// Primary match: exactly `expected` non-empty lines, each naming an existing
+/// `.md` under `staging` (absolute, or relative to it). If that count does not
+/// match, fall back to scanning every whitespace/quote separated token for such
+/// a path — a real model often wraps the list in a sentence, and deadlettering
+/// a perfectly good batch because of one prose line is worse than recovering.
+///
+/// Only files **under `staging`** are ever accepted, so a provider cannot talk
+/// Clipper into moving a file from somewhere else.
+pub fn parse_provider_stdout(stdout: &str, expected: usize, staging: &Path) -> ParsedPaths {
+    let resolve = |token: &str| -> Option<PathBuf> {
+        let token = token.trim().trim_matches(|c| c == '"' || c == '\'' || c == '`');
+        if token.is_empty() {
+            return None;
+        }
+        let candidate = if Path::new(token).is_absolute() {
+            PathBuf::from(token)
+        } else {
+            staging.join(token)
+        };
+        let is_markdown = candidate
+            .extension()
+            .map(|ext| ext.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        if is_markdown && candidate.starts_with(staging) && candidate.is_file() {
+            Some(candidate)
+        } else {
+            None
+        }
+    };
+
+    let lines: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if lines.len() == expected {
+        let strict: Option<Vec<PathBuf>> = lines.iter().map(|line| resolve(line)).collect();
+        if let Some(paths) = strict {
+            return ParsedPaths {
+                paths,
+                recovered: false,
+            };
+        }
+    }
+
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for line in &lines {
+        for token in line.split(|c: char| {
+            c.is_whitespace() || matches!(c, '"' | '\'' | '`' | ',' | '(' | ')' | '[' | ']' | '*')
+        }) {
+            if let Some(path) = resolve(token) {
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    if paths.len() == expected {
+        ParsedPaths {
+            paths,
+            recovered: true,
+        }
+    } else {
+        ParsedPaths::default()
+    }
+}
+
 /// How to spawn the extractor for one batch.
 struct ProviderSpec {
     command: String,
@@ -155,38 +235,25 @@ impl Drainer {
             return Ok(outcome);
         }
 
-        // ---- stdout must be one existing staging .md path per input ----
-        let reported: Vec<String> = run
-            .stdout
-            .lines()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
-            .collect();
-
-        let mut sources: Vec<PathBuf> = Vec::with_capacity(reported.len());
-        let mut stdout_ok = reported.len() == entries.len();
-        if stdout_ok {
-            for line in &reported {
-                let candidate = if Path::new(line).is_absolute() {
-                    PathBuf::from(line)
-                } else {
-                    staging.join(line)
-                };
-                if candidate.is_file() {
-                    sources.push(candidate);
-                } else {
-                    stdout_ok = false;
-                    break;
-                }
-            }
+        // ---- stdout must name one existing staging file per input ----
+        // Strict shape first, then the tolerant scan (see `parse_provider_stdout`).
+        let parsed = parse_provider_stdout(&run.stdout, entries.len(), &staging);
+        if parsed.recovered {
+            println!(
+                "drainer: recovered {} path(s) from noisy stdout",
+                parsed.paths.len()
+            );
         }
-        if !stdout_ok {
+
+        if parsed.paths.len() != entries.len() {
             self.deadletter(&entries, "bad-stdout")?;
             cleanup(&processing, &prompt_path);
             outcome.deadlettered += entries.len();
             outcome.reason = Some("bad-stdout".into());
             return Ok(outcome);
         }
+
+        let sources = parsed.paths;
 
         // ---- file the notes into the vault, then archive their hashes ----
         let vault_inbox = self.cfg.vault_inbox();

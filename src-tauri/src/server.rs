@@ -83,6 +83,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::routes_self::router())
         .merge(crate::routes_providers::router())
         .merge(crate::routes_pairing::router())
+        .merge(crate::routes_chat::router())
         .layer(middleware::from_fn(cors))
         .with_state(state)
 }

@@ -15,6 +15,7 @@ fn main() {
             "--hag15-smoke" => Some(clipper_lib::selfcheck::run_hag15()),
             "--hag16-smoke" => Some(clipper_lib::selfcheck::run_hag16()),
             "--hag17-smoke" => Some(clipper_lib::selfcheck::run_hag17()),
+            "--hag18-smoke" => Some(clipper_lib::selfcheck::run_hag18()),
             _ => None,
         };
         if let Some(code) = code {

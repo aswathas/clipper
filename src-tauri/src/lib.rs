@@ -23,6 +23,7 @@ pub mod memory;
 pub mod pairing;
 pub mod prompts;
 pub mod queue;
+pub mod routes_chat;
 pub mod routes_memory;
 pub mod routes_pairing;
 pub mod routes_providers;
