@@ -199,6 +199,66 @@ const MOCK_DATA = {
       decay_score: 0.22,
       why_surfaced: "Why: foundational reading for modern LLM implementations",
       vault_path: "Library/Attention Is All You Need.md"
+    },
+    {
+      id: "clip-06",
+      url: "https://dataintensive.net/",
+      type: "book",
+      source: "manual",
+      title: "Designing Data-Intensive Applications",
+      summary: "Martin Kleppmann explores reliable, scalable, and maintainable systems with consensus, replication, and partitioning.",
+      tags: ["system-design", "database", "distributed"],
+      saved_at: Math.floor((Date.now() - 5 * 86400 * 1000) / 1000),
+      reading_time_min: 60,
+      status: "library",
+      decay_score: 0.08,
+      why_surfaced: "Why: core reference for distributed state engines",
+      vault_path: "Library/Designing Data-Intensive Applications.md"
+    },
+    {
+      id: "clip-07",
+      url: "https://doc.rust-lang.org/error_codes/E0597.html",
+      type: "code-error",
+      source: "extension",
+      title: "E0597: borrowed value does not live long enough in async block",
+      summary: "Capturing a non-static reference across an await boundary requires moving ownership or pinning.",
+      tags: ["rust", "compiler", "async"],
+      saved_at: Math.floor((Date.now() - 12 * 86400 * 1000) / 1000),
+      reading_time_min: 3,
+      status: "inbox",
+      decay_score: 0.45,
+      why_surfaced: "Why: encountered in Tokio scheduler implementation",
+      vault_path: "Inbox/E0597 Async Lifetime.md"
+    },
+    {
+      id: "clip-08",
+      url: "https://assets.local/whiteboard-broker-session.png",
+      type: "photo",
+      source: "pwa",
+      title: "Architecture whiteboard: Hive Agent socket protocol",
+      summary: "Hand-drawn state machine for bidirectional message passing between orchestrator and worker agents.",
+      tags: ["architecture", "diagram", "hive"],
+      saved_at: Math.floor((Date.now() - 1 * 86400 * 1000) / 1000),
+      reading_time_min: 2,
+      status: "library",
+      decay_score: 0.15,
+      why_surfaced: "Why: matches active project documentation",
+      vault_path: "Library/Whiteboard Hive Protocol.md"
+    },
+    {
+      id: "clip-09",
+      url: "https://rustconf.com/2026",
+      type: "event",
+      source: "manual",
+      title: "RustConf 2026 Keynote & Workshops",
+      summary: "Annual conference gathering the Rust community to discuss the 2027 edition and language roadmap.",
+      tags: ["conference", "talk", "community"],
+      saved_at: Math.floor((Date.now() - 18 * 86400 * 1000) / 1000),
+      reading_time_min: 5,
+      status: "library",
+      decay_score: 0.62,
+      why_surfaced: "Why: upcoming community milestone",
+      vault_path: "Library/RustConf 2026.md"
     }
   ],
   stats: {
@@ -250,6 +310,30 @@ async function api(path, opts = {}) {
 
 function mockApiHandler(path, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
+
+  if (method === "POST" && path.startsWith("/api/items")) {
+    let body = {};
+    try {
+      body = typeof opts.body === "string" ? JSON.parse(opts.body) : (opts.body || {});
+    } catch (e) {}
+    const newItem = {
+      id: "clip-" + Date.now().toString(36),
+      url: body.url || "https://example.com",
+      type: "article",
+      source: "manual",
+      title: body.url ? body.url.replace(/^https?:\/\//, "") : "New saved item",
+      summary: "Newly saved link added to your personal library archive.",
+      tags: ["saved"],
+      saved_at: Math.floor(Date.now() / 1000),
+      reading_time_min: 5,
+      status: "library",
+      decay_score: 0.05,
+      why_surfaced: "Why: newly saved item",
+      vault_path: "Library/New Item.md"
+    };
+    MOCK_DATA.items.unshift(newItem);
+    return { ok: true, item: newItem };
+  }
 
   if (path.startsWith("/api/today") || path.startsWith("/api/items")) {
     return { items: [...MOCK_DATA.items] };
@@ -376,6 +460,107 @@ function pageToday() {
   };
 }
 
+function pageLibrary() {
+  return {
+    title: "Library",
+    items: [],
+    loading: false,
+    viewMode: "grid", // 'grid' | 'list'
+    filterType: "all",
+    sortMode: "recent", // 'recent' | 'oldest' | 'decay'
+    selectedTag: "",
+
+    typeChips: [
+      { id: "all", label: "All", count: 234 },
+      { id: "article", label: "Articles", count: 47 },
+      { id: "video", label: "Videos", count: 23 },
+      { id: "book", label: "Books", count: 12 },
+      { id: "repo", label: "Repos", count: 18 },
+      { id: "code-error", label: "Errors", count: 4 },
+      { id: "photo", label: "Photos", count: 22 },
+      { id: "event", label: "Events", count: 8 },
+      { id: "paper", label: "Papers", count: 10 }
+    ],
+
+    async init() {
+      await this.loadItems();
+    },
+
+    async loadItems() {
+      this.loading = true;
+      try {
+        const res = await api("/api/items?status=all");
+        this.items = res.items || [];
+      } catch (err) {
+        console.warn("Failed loading library items:", err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    filteredItems() {
+      let result = [...this.items];
+      if (this.filterType !== "all") {
+        result = result.filter(item => (item.type || "").toLowerCase() === this.filterType);
+      }
+      if (this.selectedTag) {
+        result = result.filter(item => (item.tags || []).includes(this.selectedTag));
+      }
+      if (this.sortMode === "recent") {
+        result.sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
+      } else if (this.sortMode === "oldest") {
+        result.sort((a, b) => (a.saved_at || 0) - (b.saved_at || 0));
+      } else if (this.sortMode === "decay") {
+        result.sort((a, b) => (b.decay_score || 0) - (a.decay_score || 0));
+      }
+      return result;
+    },
+
+    formatAge(savedAt) {
+      if (!savedAt) return "recently";
+      const sec = typeof savedAt === "number" && savedAt > 1e11 ? Math.floor(savedAt / 1000) : savedAt;
+      const diffSec = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+      const days = Math.floor(diffSec / 86400);
+      if (days === 0) return "today";
+      if (days === 1) return "1d ago";
+      if (days < 7) return `${days}d ago`;
+      const weeks = Math.floor(days / 7);
+      return `${weeks}w ago`;
+    },
+
+    decayColor(score) {
+      const s = Number(score) || 0;
+      if (s >= 0.7) return "var(--danger)";
+      if (s >= 0.35) return "var(--type-book)";
+      return "var(--decay-fresh)";
+    },
+
+    allTags() {
+      const set = new Set();
+      this.items.forEach(item => (item.tags || []).forEach(t => set.add(t)));
+      return Array.from(set);
+    },
+
+    newUrl: "",
+    async saveUrl() {
+      if (!this.newUrl.trim()) return;
+      toast("Saving URL to library...", "info");
+      try {
+        await api("/api/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: this.newUrl.trim() })
+        });
+        toast("Saved to library", "info");
+        this.newUrl = "";
+        await this.loadItems();
+      } catch (err) {
+        toast("Failed to save: " + err.message, "danger");
+      }
+    }
+  };
+}
+
 /* ============================================================================
    Application Shell Root Component
    ============================================================================ */
@@ -387,6 +572,15 @@ function clipperShell() {
     toasts: ToastManager.items,
     unreadInboxCount: 3,
     userMoodText: "reading: 3, learning: 11, idle: 2",
+    activeDetailItem: null,
+
+    openDetail(item) {
+      this.activeDetailItem = item;
+    },
+
+    closeDetail() {
+      this.activeDetailItem = null;
+    },
 
     init() {
       ThemeManager.init();

@@ -273,7 +273,7 @@
                 <div class="bar-row">
                   <span class="bar-row-label">Fresh (&lt;10d)</span>
                   <div class="bar-track">
-                    <div class="bar-fill" style="width: 60%; background-color: #2E7D32;"></div>
+                    <div class="bar-fill" style="width: 60%; background-color: var(--decay-fresh);"></div>
                   </div>
                   <span class="bar-count" x-text="decayDistribution.fresh"></span>
                 </div>
@@ -299,13 +299,133 @@
           </div>
         </section>
 
-        <!-- Placeholders for other pages -->
-        <section x-show="currentPage === 'library'">
+        <!-- Library Page (DESIGN.md Section 4) -->
+        <section x-show="currentPage === 'library'" x-data="pageLibrary()">
           <div class="top-bar">
             <div class="top-bar-titles">
               <h2 class="top-bar-title">Library</h2>
               <p class="top-bar-desc">Everything you've saved.</p>
             </div>
+            <div class="top-bar-actions" style="display: flex; align-items: center; gap: var(--sp-4);">
+              <span style="font-size: var(--fs-xs); color: var(--mute);" x-text="filteredItems().length + ' items'"></span>
+              <button type="button" class="btn btn-secondary btn-sm" @click="loadItems()">↻ Refresh</button>
+            </div>
+          </div>
+
+          <!-- Chip Rail: Type Filters + Tags -->
+          <div class="chip-rail">
+            <template x-for="chip in typeChips" :key="chip.id">
+              <button type="button"
+                      class="filter-chip"
+                      :class="{ 'active': filterType === chip.id }"
+                      @click="filterType = chip.id">
+                <span x-text="chip.label"></span>
+                <span style="font-size: 10px; opacity: 0.7;" x-text="chip.count"></span>
+              </button>
+            </template>
+
+            <!-- Tags Filter Pill -->
+            <div style="position: relative; display: inline-flex; align-items: center;">
+              <select x-model="selectedTag" class="filter-chip" style="padding-right: var(--sp-4); appearance: auto;">
+                <option value="">Tags: All</option>
+                <template x-for="tag in allTags()" :key="tag">
+                  <option :value="tag" x-text="'#' + tag"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+
+          <!-- Controls Bar: Sort + View Toggle -->
+          <div class="library-controls-bar">
+            <div style="display: flex; align-items: center; gap: var(--sp-3);">
+              <span style="color: var(--mute); font-size: var(--fs-xs);">Sort:</span>
+              <select x-model="sortMode" style="padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink); font-size: var(--fs-xs);">
+                <option value="recent">Recent</option>
+                <option value="oldest">Oldest</option>
+                <option value="decay">Decay</option>
+              </select>
+            </div>
+
+            <div class="view-toggle">
+              <button type="button"
+                      class="view-toggle-btn"
+                      :class="{ 'active': viewMode === 'grid' }"
+                      @click="viewMode = 'grid'"
+                      aria-label="Grid view">
+                <span>grid ⊞</span>
+              </button>
+              <button type="button"
+                      class="view-toggle-btn"
+                      :class="{ 'active': viewMode === 'list' }"
+                      @click="viewMode = 'list'"
+                      aria-label="List view">
+                <span>list ☰</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Grid View -->
+          <div x-show="viewMode === 'grid' && filteredItems().length > 0" class="library-grid">
+            <template x-for="item in filteredItems()" :key="item.id">
+              <article class="library-card" @click="openDetail(item)">
+                <div class="library-card-accent" :style="{ backgroundColor: getTypeMeta(item.type).colorVar }"></div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--sp-2);">
+                  <div x-html="typeBadge(item.type, true)"></div>
+                  <span style="font-size: var(--fs-xs); color: var(--mute-2); font-family: var(--font-mono);" x-text="formatAge(item.saved_at)"></span>
+                </div>
+
+                <h3 class="library-card-title" x-text="item.title"></h3>
+                <p class="library-card-excerpt" x-text="item.summary"></p>
+
+                <div style="display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-3);">
+                  <template x-for="tag in (item.tags || []).slice(0, 3)" :key="tag">
+                    <span style="background-color: var(--surface-2); font-size: var(--fs-xs); padding: 2px 6px; border-radius: var(--r-sm); color: var(--mute);" x-text="'#' + tag"></span>
+                  </template>
+                  <template x-if="(item.tags || []).length > 3">
+                    <span style="font-size: var(--fs-xs); color: var(--mute-2); padding: 2px 4px;" x-text="'+' + ((item.tags || []).length - 3)"></span>
+                  </template>
+                </div>
+
+                <div class="decay-bar-track" style="margin-bottom: var(--sp-2);">
+                  <div class="decay-bar-fill" :style="{ width: Math.max(10, Math.round((item.decay_score || 0.1) * 100)) + '%', backgroundColor: decayColor(item.decay_score) }"></div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--mute-2); margin-top: auto;">
+                  <span x-text="(item.reading_time_min || 5) + ' min read'"></span>
+                  <span x-text="item.source || 'web'"></span>
+                </div>
+              </article>
+            </template>
+          </div>
+
+          <!-- List View -->
+          <div x-show="viewMode === 'list' && filteredItems().length > 0" class="library-list">
+            <template x-for="item in filteredItems()" :key="item.id">
+              <div class="library-list-row" @click="openDetail(item)">
+                <div x-html="typeBadge(item.type, false)" style="margin-right: var(--sp-2);"></div>
+                <div style="flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-3);">
+                  <span style="font-family: var(--font-display); font-size: var(--fs-base); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="item.title"></span>
+                  <div style="display: flex; gap: var(--sp-1); flex-shrink: 0;">
+                    <template x-for="tag in (item.tags || []).slice(0, 2)" :key="tag">
+                      <span style="background-color: var(--surface-2); font-size: 11px; padding: 1px 5px; border-radius: var(--r-sm); color: var(--mute);" x-text="'#' + tag"></span>
+                    </template>
+                  </div>
+                </div>
+                <div class="decay-dot" :style="{ backgroundColor: decayColor(item.decay_score) }" :title="'Decay score: ' + (item.decay_score || 0)"></div>
+                <span style="font-size: var(--fs-xs); color: var(--mute-2); font-family: var(--font-mono); width: 64px; text-align: right;" x-text="formatAge(item.saved_at)"></span>
+              </div>
+            </template>
+          </div>
+
+          <!-- Empty State -->
+          <div x-show="filteredItems().length === 0" style="text-align: center; padding: var(--sp-8) var(--sp-4); max-width: 480px; margin: 0 auto;">
+            <h3 style="font-family: var(--font-display); font-size: var(--fs-xl); color: var(--ink); margin-bottom: var(--sp-2);">Nothing saved yet</h3>
+            <p style="font-size: var(--fs-sm); color: var(--mute); margin-bottom: var(--sp-5);">The library grows one item at a time.</p>
+            <form @submit.prevent="saveUrl()" style="display: flex; gap: var(--sp-2);">
+              <input type="url" x-model="newUrl" placeholder="Paste a URL to save..." required style="flex: 1; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--hairline); background-color: var(--surface); color: var(--ink); font-size: var(--fs-sm);" />
+              <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            </form>
           </div>
         </section>
 
