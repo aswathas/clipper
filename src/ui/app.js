@@ -137,6 +137,7 @@ const MOCK_DATA = {
       reading_time_min: 8,
       status: "inbox",
       decay_score: 0.12,
+      why_surfaced: "Why: you saved 3 similar this month",
       vault_path: "Inbox/Rust ownership patterns.md"
     },
     {
@@ -151,6 +152,7 @@ const MOCK_DATA = {
       reading_time_min: 47,
       status: "inbox",
       decay_score: 0.35,
+      why_surfaced: "Why: matches your learning goal on transformers",
       vault_path: "Inbox/Tiny LLM from scratch.md"
     },
     {
@@ -165,14 +167,45 @@ const MOCK_DATA = {
       reading_time_min: 6,
       status: "inbox",
       decay_score: 0.78,
+      why_surfaced: "Why: flagged for critical software architecture review",
       vault_path: "Inbox/Is TDD Dead.md"
+    },
+    {
+      id: "clip-04",
+      url: "https://github.com/tokio-rs/tokio",
+      type: "repo",
+      source: "extension",
+      title: "Tokio: An asynchronous runtime for Rust",
+      summary: "Multi-threaded work-stealing scheduler with non-blocking I/O primitives and timers.",
+      tags: ["rust", "async", "networking"],
+      saved_at: Math.floor((Date.now() - 3 * 86400 * 1000) / 1000),
+      reading_time_min: 15,
+      status: "library",
+      decay_score: 0.18,
+      why_surfaced: "Why: aligns with your active focus on Tokio internals",
+      vault_path: "Library/Tokio Runtime.md"
+    },
+    {
+      id: "clip-05",
+      url: "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+      type: "paper",
+      source: "Ctrl+Shift+C",
+      title: "Attention Is All You Need",
+      summary: "Seminal paper introducing the Transformer architecture based solely on self-attention mechanisms.",
+      tags: ["ai", "paper", "deep-learning"],
+      saved_at: Math.floor((Date.now() - 4 * 86400 * 1000) / 1000),
+      reading_time_min: 25,
+      status: "library",
+      decay_score: 0.22,
+      why_surfaced: "Why: foundational reading for modern LLM implementations",
+      vault_path: "Library/Attention Is All You Need.md"
     }
   ],
   stats: {
-    total: 3,
-    stale_30d: 0,
-    by_status: { inbox: 3, library: 0, archived: 0 },
-    by_type: { article: 2, video: 1 }
+    total: 234,
+    stale_30d: 14,
+    by_status: { inbox: 7, library: 227, archived: 42 },
+    by_type: { article: 47, video: 23, book: 12, repo: 18, "code-error": 4, photo: 22, event: 8, paper: 10 }
   }
 };
 
@@ -242,8 +275,44 @@ function pageToday() {
     items: [],
     loading: false,
 
+    // Metrics for "THIS WEEK" (Section 3)
+    thisWeek: {
+      saved: 23,
+      savedDelta: "↑ 4 vs last",
+      read: 12,
+      readDelta: "= vs last",
+      focus: "5h 40m",
+      focusDelta: "↑ 1h 10m"
+    },
+
+    // Stale & Forgotten count
+    staleCount: 14,
+
+    // Topics you lean on (top 8)
+    topTopics: [
+      { name: "rust", count: 47, percent: 94 },
+      { name: "ai", count: 31, percent: 62 },
+      { name: "cooking", count: 8, percent: 16 },
+      { name: "sqlite", count: 18, percent: 36 },
+      { name: "tauri", count: 14, percent: 28 },
+      { name: "alpine", count: 12, percent: 24 },
+      { name: "design", count: 9, percent: 18 },
+      { name: "systems", count: 7, percent: 14 }
+    ],
+
+    // Decay distribution
+    decayDistribution: {
+      fresh: 28,
+      warm: 12,
+      stale: 7
+    },
+
+    // 90-day sparkline bars: 90 entries, each with x, height, color, opacity
+    sparklineBars: [],
+
     async init() {
       this.updateGreeting();
+      this.generateSparkline();
       await this.loadItems();
     },
 
@@ -255,16 +324,54 @@ function pageToday() {
       this.greeting = `${timeGreeting}, Aswath.`;
     },
 
+    generateSparkline() {
+      // 90 days of activity. ViewBox 0 0 720 60.
+      // Bar width: 6px, gap: 2px (90 bars * 8px = 720px width).
+      const bars = [];
+      const now = Date.now();
+      // Seeded deterministic counts for calm presentation
+      const countsPattern = [
+        1, 0, 2, 3, 5, 4, 2, 0, 1, 3, 4, 6, 8, 5, 2, 1, 0, 0, 2, 4, 3, 5,
+        1, 2, 0, 1, 4, 6, 9, 7, 5, 3, 2, 1, 0, 1, 2, 3, 5, 4, 2, 1, 0, 2,
+        3, 4, 6, 5, 3, 2, 1, 0, 0, 1, 3, 5, 7, 4, 2, 1, 0, 2, 3, 5, 6, 4,
+        2, 1, 0, 1, 3, 4, 7, 8, 6, 4, 2, 1, 0, 2, 4, 5, 7, 9, 6, 4, 3, 2, 5, 4
+      ];
+
+      for (let i = 0; i < 90; i++) {
+        const count = countsPattern[i] ?? 0;
+        const x = i * 8;
+        // Max height capped at 54px (leaving 6px top margin in 60px viewBox)
+        const barHeight = count > 0 ? Math.min(Math.round((count / 10) * 50) + 4, 54) : 3;
+        const y = 60 - barHeight;
+        const fill = count > 0 ? "var(--accent)" : "var(--mute-2)";
+        const opacity = count > 0 ? 0.9 : 0.15;
+        bars.push({ x, y, width: 6, height: barHeight, fill, opacity, count });
+      }
+      this.sparklineBars = bars;
+    },
+
     async loadItems() {
       this.loading = true;
       try {
         const res = await api("/api/today");
-        this.items = res.items || [];
+        this.items = (res.items || []).slice(0, 5);
       } catch (err) {
         console.warn("Failed loading today items:", err);
       } finally {
         this.loading = false;
       }
+    },
+
+    formatAge(savedAt) {
+      if (!savedAt) return "recently";
+      const sec = typeof savedAt === "number" && savedAt > 1e11 ? Math.floor(savedAt / 1000) : savedAt;
+      const diffSec = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+      const days = Math.floor(diffSec / 86400);
+      if (days === 0) return "today";
+      if (days === 1) return "1d ago";
+      if (days < 7) return `${days}d ago`;
+      const weeks = Math.floor(days / 7);
+      return `${weeks}w ago`;
     }
   };
 }

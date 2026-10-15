@@ -131,7 +131,7 @@
     <!-- Main Content Area -->
     <div class="main-wrapper">
       <main class="main-content">
-        <!-- Today Page (Landing) -->
+        <!-- Today Page (Landing, DESIGN.md Section 3) -->
         <section x-show="currentPage === 'today'" x-data="pageToday()">
           <div class="top-bar">
             <div class="top-bar-titles">
@@ -139,17 +139,162 @@
               <p class="top-bar-desc" x-text="dateFormatted"></p>
             </div>
             <div class="top-bar-actions">
-              <!-- Contextual action slot -->
+              <button type="button" class="btn btn-secondary btn-sm" @click="loadItems()">↻ Refresh</button>
             </div>
           </div>
 
-          <!-- Empty Today state for Step 1 -->
-          <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--sp-8) var(--sp-6); text-align: center; max-width: 540px; margin: var(--sp-8) auto;">
-            <h3 style="font-size: var(--fs-xl); margin-bottom: var(--sp-2);">Your library is quiet</h3>
-            <p style="font-size: var(--fs-base); color: var(--mute); margin-bottom: var(--sp-5);">The first save is the hardest — paste a link or document to begin.</p>
-            <div style="display: flex; gap: var(--sp-2); max-width: 420px; margin: 0 auto;">
-              <input type="text" placeholder="Paste a link to save..." style="background-color: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); flex: 1; color: var(--ink);">
-              <button type="button" class="btn btn-primary">Save Clip</button>
+          <!-- 1. THIS WEEK -->
+          <div class="today-section">
+            <div class="section-caption">This Week</div>
+            <div class="metric-cards-grid">
+              <div class="metric-card">
+                <div class="metric-number" x-text="thisWeek.saved"></div>
+                <div class="metric-label">saved</div>
+                <div class="metric-delta" x-text="thisWeek.savedDelta"></div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-number" x-text="thisWeek.read"></div>
+                <div class="metric-label">read</div>
+                <div class="metric-delta" x-text="thisWeek.readDelta"></div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-number" x-text="thisWeek.focus"></div>
+                <div class="metric-label">focus</div>
+                <div class="metric-delta" x-text="thisWeek.focusDelta"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. FOR YOU TODAY -->
+          <div class="today-section">
+            <div class="section-caption">
+              <span>For You Today</span>
+              <a href="#/library" style="color: var(--accent); font-size: var(--fs-xs); font-weight: 500;" x-text="items.length + ' items →'"></a>
+            </div>
+
+            <div class="foryou-cards">
+              <template x-for="item in items" :key="item.id">
+                <article class="foryou-card">
+                  <!-- Type color accent bar -->
+                  <div class="foryou-accent-bar" :style="'background-color: var(--type-' + item.type + ');'"></div>
+
+                  <!-- Header: type badge, tag, age -->
+                  <div class="foryou-header-line">
+                    <span x-html="renderTypeBadge(item.type, true)"></span>
+                    <span>·</span>
+                    <span x-text="'#' + (item.tags ? item.tags[0] : 'reading')"></span>
+                    <span>·</span>
+                    <span x-text="formatAge(item.saved_at)"></span>
+                  </div>
+
+                  <!-- Title in display serif -->
+                  <h3 class="foryou-title" x-text="item.title || item.url"></h3>
+
+                  <!-- Why this surfaced -->
+                  <div class="why-surfaced" x-text="item.why_surfaced || 'Why: surfaced by your reading model'"></div>
+
+                  <!-- Excerpt -->
+                  <div class="foryou-excerpt" x-text="item.summary || 'Summary unavailable for this clip.'"></div>
+
+                  <!-- Footer tags & reading time -->
+                  <div class="foryou-footer">
+                    <div class="tag-pills-row">
+                      <template x-for="t in (item.tags || [])" :key="t">
+                        <span class="tag-pill" x-text="'#' + t"></span>
+                      </template>
+                    </div>
+                    <span style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="(item.reading_time_min || 5) + ' min'"></span>
+                  </div>
+                </article>
+              </template>
+            </div>
+          </div>
+
+          <!-- 3. STALE & FORGOTTEN -->
+          <div class="today-section">
+            <div class="section-caption">Stale &amp; Forgotten</div>
+            <div class="stale-box">
+              <div>
+                <span style="font-weight: 500; color: var(--ink);" x-text="staleCount + ' items saved over 30 days ago, never opened.'"></span>
+                <div style="font-size: var(--fs-xs); color: var(--mute); margin-top: 2px;">Keep your library intentional. Archive or file them.</div>
+              </div>
+              <a href="#/inbox" class="btn btn-secondary btn-sm">Review →</a>
+            </div>
+          </div>
+
+          <!-- 4. ACTIVITY (90-day sparkline) -->
+          <div class="today-section">
+            <div class="section-caption">Activity ─── last 90 days ───</div>
+            <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow-1);">
+              <svg class="sparkline-svg" viewBox="0 0 720 60" preserveAspectRatio="none">
+                <template x-for="(bar, i) in sparklineBars" :key="i">
+                  <rect 
+                    :x="bar.x" 
+                    :y="bar.y" 
+                    :width="bar.width" 
+                    :height="bar.height" 
+                    :fill="bar.fill" 
+                    :opacity="bar.opacity" 
+                    rx="1"
+                  >
+                    <title x-text="bar.count + ' saves'"></title>
+                  </rect>
+                </template>
+              </svg>
+              <div class="sparkline-legend">
+                <span>90 days ago</span>
+                <span>Last week</span>
+                <span>Today</span>
+                <span style="font-weight: 600; color: var(--ink);">90-day total: 184</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. TOPICS & DECAY DISTRIBUTION -->
+          <div class="today-section">
+            <div class="distribution-grid">
+              <!-- Topics you lean on -->
+              <div class="distribution-card">
+                <div class="distribution-title">Topics you lean on</div>
+                <template x-for="t in topTopics" :key="t.name">
+                  <div class="bar-row">
+                    <span class="bar-row-label" x-text="t.name"></span>
+                    <div class="bar-track">
+                      <div class="bar-fill" :style="'width: ' + t.percent + '%; background-color: var(--accent);'"></div>
+                    </div>
+                    <span class="bar-count" x-text="t.count"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Decay distribution -->
+              <div class="distribution-card">
+                <div class="distribution-title">Decay distribution</div>
+                <div class="bar-row">
+                  <span class="bar-row-label">Fresh (&lt;10d)</span>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width: 60%; background-color: #2E7D32;"></div>
+                  </div>
+                  <span class="bar-count" x-text="decayDistribution.fresh"></span>
+                </div>
+                <div class="bar-row">
+                  <span class="bar-row-label">Warm (&lt;20d)</span>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width: 25%; background-color: var(--type-book);"></div>
+                  </div>
+                  <span class="bar-count" x-text="decayDistribution.warm"></span>
+                </div>
+                <div class="bar-row">
+                  <span class="bar-row-label">Stale (&gt;20d)</span>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width: 15%; background-color: var(--danger);"></div>
+                  </div>
+                  <span class="bar-count" x-text="decayDistribution.stale"></span>
+                </div>
+                <div style="margin-top: var(--sp-4); text-align: right;">
+                  <a href="#/library" class="btn btn-ghost btn-sm">Show all in Library →</a>
+                </div>
+              </div>
             </div>
           </div>
         </section>
