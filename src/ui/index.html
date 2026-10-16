@@ -180,7 +180,7 @@
                   <div class="foryou-header-line">
                     <span x-html="renderTypeBadge(item.type, true)"></span>
                     <span>·</span>
-                    <span x-text="'#' + (item.tags ? item.tags[0] : 'reading')"></span>
+                    <span class="tag-pill" :style="tagStyle(item.tags ? item.tags[0] : 'reading')" x-text="'#' + (item.tags ? item.tags[0] : 'reading')"></span>
                     <span>·</span>
                     <span x-text="formatAge(item.saved_at)"></span>
                   </div>
@@ -198,7 +198,7 @@
                   <div class="foryou-footer">
                     <div class="tag-pills-row">
                       <template x-for="t in (item.tags || [])" :key="t">
-                        <span class="tag-pill" x-text="'#' + t"></span>
+                        <span class="tag-pill" :style="tagStyle(t)" x-text="'#' + t"></span>
                       </template>
                     </div>
                     <span style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="(item.reading_time_min || 5) + ' min'"></span>
@@ -431,7 +431,7 @@
 
                 <div style="display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-3);">
                   <template x-for="tag in (item.tags || []).slice(0, 3)" :key="tag">
-                    <span style="background-color: var(--surface-2); font-size: var(--fs-xs); padding: 2px 6px; border-radius: var(--r-sm); color: var(--mute);" x-text="'#' + tag"></span>
+                    <span class="tag-pill" :style="tagStyle(tag)" x-text="'#' + tag"></span>
                   </template>
                   <template x-if="(item.tags || []).length > 3">
                     <span style="font-size: var(--fs-xs); color: var(--mute-2); padding: 2px 4px;" x-text="'+' + ((item.tags || []).length - 3)"></span>
@@ -459,7 +459,7 @@
                   <span style="font-family: var(--font-display); font-size: var(--fs-base); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="item.title"></span>
                   <div style="display: flex; gap: var(--sp-1); flex-shrink: 0;">
                     <template x-for="tag in (item.tags || []).slice(0, 2)" :key="tag">
-                      <span style="background-color: var(--surface-2); font-size: 11px; padding: 1px 5px; border-radius: var(--r-sm); color: var(--mute);" x-text="'#' + tag"></span>
+                      <span class="tag-pill" style="font-size: 11px; padding: 1px 6px;" :style="tagStyle(tag)" x-text="'#' + tag"></span>
                     </template>
                   </div>
                 </div>
@@ -573,7 +573,7 @@
                       <span>·</span>
                       <span x-text="formatAge(item.saved_at)"></span>
                       <template x-for="tag in (item.tags || [])" :key="tag">
-                        <span>· <span style="color: var(--ink-2);" x-text="'#' + tag"></span></span>
+                        <span class="tag-pill" style="font-size: 11px; padding: 1px 6px;" :style="tagStyle(tag)" x-text="'#' + tag"></span>
                       </template>
                     </div>
                   </div>
@@ -1205,9 +1205,9 @@
         <!-- Tag Pills with click to remove and +add -->
         <div class="slideover-tags-row">
           <template x-for="tag in (activeDetailItem ? activeDetailItem.tags || [] : [])" :key="tag">
-            <button type="button" class="slideover-tag-pill" @click="removeDetailTag(tag)" :title="'Click to remove #' + tag">
+            <button type="button" class="slideover-tag-pill" :style="tagStyle(tag)" @click="removeDetailTag(tag)" :title="'Click to remove #' + tag">
               <span x-text="'#' + tag"></span>
-              <span class="remove-tag">×</span>
+              <span class="remove-tag" style="color: currentColor; opacity: 0.75;">×</span>
             </button>
           </template>
           <button type="button" class="slideover-tag-add-btn" @click="addDetailTag()">+ add tag</button>

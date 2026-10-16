@@ -116,7 +116,42 @@ function getTypeMeta(type) {
 function renderTypeBadge(type, withLabel = true) {
   const meta = getTypeMeta(type);
   const labelHtml = withLabel ? `<span class="type-badge-label">${meta.label}</span>` : "";
-  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`;
+  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`
+}
+
+/* ============================================================================
+   Tag Color Map (Deterministic Hue-from-Hash across 12-Color Palette)
+   ============================================================================ */
+
+const TAG_PALETTE = [
+  { name: "rust",    bg: "var(--tag-rust-bg)",    fg: "var(--tag-rust-fg)" },
+  { name: "amber",   bg: "var(--tag-amber-bg)",   fg: "var(--tag-amber-fg)" },
+  { name: "forest",  bg: "var(--tag-forest-bg)",  fg: "var(--tag-forest-fg)" },
+  { name: "sea",     bg: "var(--tag-sea-bg)",     fg: "var(--tag-sea-fg)" },
+  { name: "berry",   bg: "var(--tag-berry-bg)",   fg: "var(--tag-berry-fg)" },
+  { name: "plum",    bg: "var(--tag-plum-bg)",    fg: "var(--tag-plum-fg)" },
+  { name: "indigo",  bg: "var(--tag-indigo-bg)",  fg: "var(--tag-indigo-fg)" },
+  { name: "teal",    bg: "var(--tag-teal-bg)",    fg: "var(--tag-teal-fg)" },
+  { name: "olive",   bg: "var(--tag-olive-bg)",   fg: "var(--tag-olive-fg)" },
+  { name: "ochre",   bg: "var(--tag-ochre-bg)",   fg: "var(--tag-ochre-fg)" },
+  { name: "crimson", bg: "var(--tag-crimson-bg)", fg: "var(--tag-crimson-fg)" },
+  { name: "slate",   bg: "var(--tag-slate-bg)",   fg: "var(--tag-slate-fg)" }
+];
+
+function tagHueFromHash(tag) {
+  const str = String(tag || "").toLowerCase().trim().replace(/^#/, "");
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const idx = (hash >>> 0) % TAG_PALETTE.length;
+  return TAG_PALETTE[idx];
+}
+
+function tagStyle(tag) {
+  const entry = tagHueFromHash(tag);
+  return `background-color: ${entry.bg}; color: ${entry.fg};`;
 }
 
 /* ============================================================================
@@ -1681,6 +1716,10 @@ function clipperShell() {
 
     typeMeta(type) {
       return getTypeMeta(type);
+    },
+
+    tagStyle(tag) {
+      return tagStyle(tag);
     }
   };
 }
@@ -1693,3 +1732,6 @@ window.toast = toast;
 window.TYPE_CONFIG = TYPE_CONFIG;
 window.getTypeMeta = getTypeMeta;
 window.renderTypeBadge = renderTypeBadge;
+window.TAG_PALETTE = TAG_PALETTE;
+window.tagHueFromHash = tagHueFromHash;
+window.tagStyle = tagStyle;

@@ -36,6 +36,20 @@
   --type-event: #0F766E;
   --type-paper: #4338CA;
 
+  /* 12-Color Tag Palette (light: WCAG AA ≥ 7:1 contrast) */
+  --tag-rust-bg: #FDECE6;    --tag-rust-fg: #7C2D12;
+  --tag-amber-bg: #FEF3C7;   --tag-amber-fg: #78350F;
+  --tag-forest-bg: #E6F4EA;  --tag-forest-fg: #14532D;
+  --tag-sea-bg: #E0F2FE;     --tag-sea-fg: #0C4A6E;
+  --tag-berry-bg: #FCE7F3;   --tag-berry-fg: #831843;
+  --tag-plum-bg: #F3E8FF;    --tag-plum-fg: #581C87;
+  --tag-indigo-bg: #E0E7FF;  --tag-indigo-fg: #312E81;
+  --tag-teal-bg: #CCFBF1;    --tag-teal-fg: #134E4A;
+  --tag-olive-bg: #ECFCCB;   --tag-olive-fg: #365314;
+  --tag-ochre-bg: #FEF9C3;   --tag-ochre-fg: #713F12;
+  --tag-crimson-bg: #FEE2E2; --tag-crimson-fg: #7F1D1D;
+  --tag-slate-bg: #F1F5F9;   --tag-slate-fg: #1E293B;
+
   /* Typography */
   --font-display: "Spectral", "Source Serif 4", Georgia, serif;
   --font-body: "Inter", -apple-system, "Segoe UI", sans-serif;
@@ -111,6 +125,20 @@
   --type-photo: #8232C9;
   --type-event: #149289;
   --type-paper: #584DE6;
+
+  /* 12-Color Tag Palette (dark: WCAG AA ≥ 7:1 contrast) */
+  --tag-rust-bg: #3B180C;    --tag-rust-fg: #FDBA74;
+  --tag-amber-bg: #382008;   --tag-amber-fg: #FDE68A;
+  --tag-forest-bg: #0C2E1B;  --tag-forest-fg: #86EFAC;
+  --tag-sea-bg: #08283B;     --tag-sea-fg: #7DD3FC;
+  --tag-berry-bg: #3B0D25;   --tag-berry-fg: #F9A8D4;
+  --tag-plum-bg: #2B1045;    --tag-plum-fg: #D8B4FE;
+  --tag-indigo-bg: #1B184A;  --tag-indigo-fg: #A5B4FC;
+  --tag-teal-bg: #092B29;    --tag-teal-fg: #5EEAD4;
+  --tag-olive-bg: #1E2E0B;   --tag-olive-fg: #BEF264;
+  --tag-ochre-bg: #362107;   --tag-ochre-fg: #FEF08A;
+  --tag-crimson-bg: #3D1010; --tag-crimson-fg: #FCA5A5;
+  --tag-slate-bg: #1E2530;   --tag-slate-fg: #CBD5E1;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.4);
