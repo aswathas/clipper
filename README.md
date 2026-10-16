@@ -50,6 +50,21 @@ The Clipper dashboard has been redesigned from the ground up according to [`DESI
 
 ---
 
+## What's new
+
+### v0.4.0 — content + calendar + colors + palette
+
+- **`/api/items/{id}`** now returns the full markdown body (`content` + `body_md`), parsed frontmatter (`frontmatter` map), and raw frontmatter (`raw_frontmatter`). The slide-over renders the real notes, not a stub.
+- **365-day contribution calendar** on Today above the sparkline. Color buckets by save count, hover for date + count, click to filter the day.
+- **Tag color map** — deterministic 12-color palette (`rust` / `amber` / `forest` / `sea` / `berry` / `plum` / `indigo` / `teal` / `olive` / `ochre` / `crimson` / `slate`) with WCAG AA tokens. Applied to Library, Inbox, slideover, For-You.
+- **`Cmd+K` command palette** — fuzzy search across pages, recent items, tags; quick-save URL mode.
+- **Inline hover preview** on cards (600ms hover → floating panel with title + summary + hero image).
+- All 11 `--<n>-smoke` gates green, 22 `smoke.ps1` checks green.
+
+### v0.3.0 — The Library
+
+First Impeccable redesign. Headless Tauri daemon, 6 pages, 12 dashboard commits by Pam, 9 a11y fix commits, 0 raw hex outside token definitions.
+
 ## Features
 
 - **Clipboard URL capture** — press `Ctrl+Shift+C` in any app. A URL is deduped
