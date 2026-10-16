@@ -513,7 +513,8 @@
           <div x-show="!loading && filteredItems().length > 0" class="inbox-list">
             <template x-for="(item, idx) in filteredItems()" :key="item.id">
               <div class="inbox-row"
-                   :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }">
+                   :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }"
+                   :tabindex="focusedIndex === idx ? 0 : -1">
 
                 <!-- Left Checkbox (sibling of row button) -->
                 <div class="inbox-checkbox"

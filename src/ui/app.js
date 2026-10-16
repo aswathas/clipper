@@ -782,6 +782,12 @@ function pageInbox() {
           this.focusedIndex = Math.min(this.focusedIndex + 1, list.length - 1);
         } else if (e.key === "k") {
           this.focusedIndex = Math.max(this.focusedIndex - 1, 0);
+        }
+        if (e.key === "j" || e.key === "k") {
+          this.$nextTick(() => {
+            const row = document.querySelector(".inbox-row.focused");
+            if (row) row.focus();
+          });
         } else if (e.key === "a") {
           const item = list[this.focusedIndex];
           if (item) this.archiveItem(item);
