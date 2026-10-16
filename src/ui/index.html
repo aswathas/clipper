@@ -936,6 +936,7 @@
               <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'providers' }" @click="activeTab = 'providers'">Providers</button>
               <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'pairing' }" @click="activeTab = 'pairing'">Pairing</button>
               <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'devices' }" @click="activeTab = 'devices'">Devices</button>
+              <button type="button" class="settings-tab-btn" :class="{ 'active': activeTab === 'import' }" @click="activeTab = 'import'">Import</button>
             </aside>
 
             <!-- Settings Content Pane -->
@@ -1098,6 +1099,28 @@
                       <button type="button" class="btn btn-ghost btn-sm" style="color: var(--danger);" @click="revokeDevice(dev)">Revoke</button>
                     </div>
                   </template>
+                </div>
+              </div>
+
+              <div x-show="activeTab === 'import'">
+                <h3 class="settings-section-title">Mass Import</h3>
+                <p style="font-size: var(--fs-sm); color: var(--mute); margin: 0 0 var(--sp-3) 0;">
+                  Paste a JSON array of items to bulk-import. Each item: <code>{"url":"https://...","title":"...","tags":["..."]}</code>.
+                  Duplicates (already in your vault) are skipped automatically.
+                </p>
+                <textarea
+                  class="import-textarea"
+                  x-model="importText"
+                  rows="10"
+                  placeholder='[{"url":"https://example.com/article-1","title":"Article 1"},{"url":"https://example.com/article-2"}]'
+                  style="width: 100%; padding: var(--sp-3); font-family: var(--font-mono); font-size: var(--fs-sm); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); color: var(--ink); resize: vertical;"
+                ></textarea>
+                <div style="display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3);">
+                  <button type="button" class="btn btn-primary" :disabled="!importText.trim() || importing" @click="runImport()">
+                    <span x-show="!importing">Import</span>
+                    <span x-show="importing">Importing…</span>
+                  </button>
+                  <span style="font-size: var(--fs-sm); color: var(--mute);" x-show="importResult" x-text="importResult"></span>
                 </div>
               </div>
 

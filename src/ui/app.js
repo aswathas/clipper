@@ -1406,7 +1406,11 @@ function pageSkills() {
 function pageSettings() {
   return {
     title: "Settings",
-    activeTab: "soul", // 'soul' | 'memory' | 'self' | 'providers' | 'pairing' | 'devices'
+    activeTab: "soul", // 'soul' | 'memory' | 'self' | 'providers' | 'pairing' | 'devices' | 'import'
+    isDirty: false,
+    importText: "",
+    importing: false,
+    importResult: "",
     isDirty: false,
 
     // Soul Tab
@@ -1532,6 +1536,41 @@ allowed_lan_subnets = ["192.168.0.0/16"]`,
         return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
       } catch (e) {
         return md;
+      }
+    },
+
+    async runImport() {
+      const text = this.importText.trim();
+      if (!text) return;
+      let items;
+      try {
+        const parsed = JSON.parse(text);
+        items = Array.isArray(parsed) ? parsed : (parsed.items || []);
+      } catch (e) {
+        this.importResult = "Invalid JSON: " + e.message;
+        toast("Import failed: invalid JSON", "danger");
+        return;
+      }
+      if (!Array.isArray(items) || items.length === 0) {
+        this.importResult = "Empty or non-array input";
+        return;
+      }
+      this.importing = true;
+      this.importResult = `Importing ${items.length} items…`;
+      try {
+        const res = await api("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items, source: "mass-import" })
+        });
+        this.importResult = `Imported ${res.imported}/${res.total}, ${res.failed} skipped/failed`;
+        toast(`Imported ${res.imported} of ${res.total} items`, res.failed > 0 ? "info" : "info");
+        if (res.imported > 0) this.importText = "";
+      } catch (e) {
+        this.importResult = "Error: " + (e.message || "import failed");
+        toast("Import error: " + e.message, "danger");
+      } finally {
+        this.importing = false;
       }
     }
   };

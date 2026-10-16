@@ -65,6 +65,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/items/{id}/status", post(set_status))
         .route("/api/items/{id}/tags", post(set_tags))
         .route("/api/clips", post(create_clip))
+        .route("/api/import", post(import_batch))
         .route("/api/today", get(today))
         .route("/api/stats", get(stats))
         // phone pairing
@@ -350,6 +351,62 @@ async fn create_clip(
     Json(body): Json<ClipBody>,
 ) -> Result<Json<Value>, ApiError> {
     enqueue_clip(&state, body.url, body.kind, "manual")
+}
+
+#[derive(Debug, Deserialize)]
+struct ImportItem {
+    url: String,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    title: Option<String>,
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ImportBody {
+    items: Vec<ImportItem>,
+    source: Option<String>,
+}
+
+async fn import_batch(
+    State(state): State<AppState>,
+    Json(body): Json<ImportBody>,
+) -> Result<Json<Value>, ApiError> {
+    let source = body.source.unwrap_or_else(|| "import".to_string());
+    let mut imported = 0u32;
+    let mut failed = 0u32;
+    let mut errors: Vec<String> = Vec::new();
+    for item in body.items {
+        if !queue::looks_like_url(&item.url) {
+            failed += 1;
+            errors.push(format!("bad url: {}", item.url));
+            continue;
+        }
+        // Dedup: skip if URL already exists in items table.
+        let dup = with_db(&state, |conn| {
+            let mut stmt = conn.prepare("SELECT 1 FROM items WHERE url = ? LIMIT 1")?;
+            let exists: bool = stmt.exists([&item.url])?;
+            Ok(exists)
+        })?;
+        if dup {
+            failed += 1;
+            continue;
+        }
+        match enqueue_clip(&state, item.url.clone(), item.kind, &source) {
+            Ok(_) => imported += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}: {}", item.url, e.1));
+            }
+        }
+    }
+    let total = imported + failed;
+    Ok(Json(json!({
+        "total": total,
+        "imported": imported,
+        "failed": failed,
+        "errors": errors,
+    })))
 }
 
 /// Shared by `POST /api/clips` and the phone's `POST /save`.
