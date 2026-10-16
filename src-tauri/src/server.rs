@@ -248,10 +248,18 @@ async fn get_item(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    match with_db(&state, |conn| db::get(conn, &id))? {
-        Some(item) => Ok(Json(json!(item))),
-        None => Err(ApiError::new(StatusCode::NOT_FOUND, "no such item")),
+    let mut item = match with_db(&state, |conn| db::get(conn, &id))? {
+        Some(item) => serde_json::to_value(&item).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "no such item")),
+    };
+    if let Some(vp) = item.get("vault_path").and_then(|v| v.as_str()) {
+        if let Ok(body) = std::fs::read_to_string(vp) {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("content".into(), json!(body));
+            }
+        }
     }
+    Ok(Json(item))
 }
 
 #[derive(Debug, Deserialize)]
