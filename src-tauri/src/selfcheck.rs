@@ -471,6 +471,13 @@ fn hag4_rest_api() -> Result<(), String> {
     if one["title"] != "Rust ownership explained" {
         return Err(format!("title = {}", one["title"]));
     }
+    let content = one["content"].as_str().unwrap_or("");
+    if content.is_empty() || !content.contains("Rust ownership explained") {
+        return Err(format!("expected non-empty item content, got: {:?}", one["content"]));
+    }
+    if one["frontmatter"]["tag"].is_null() && one["frontmatter"]["tags"].is_null() {
+        return Err(format!("expected parsed frontmatter on item, got: {}", one["frontmatter"]));
+    }
     let (status, _) = http(port, "GET", "/api/items/nope", None)?;
     if status != 404 {
         return Err(format!("unknown id -> {status}, expected 404"));

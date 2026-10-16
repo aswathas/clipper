@@ -116,7 +116,42 @@ function getTypeMeta(type) {
 function renderTypeBadge(type, withLabel = true) {
   const meta = getTypeMeta(type);
   const labelHtml = withLabel ? `<span class="type-badge-label">${meta.label}</span>` : "";
-  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`;
+  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`
+}
+
+/* ============================================================================
+   Tag Color Map (Deterministic Hue-from-Hash across 12-Color Palette)
+   ============================================================================ */
+
+const TAG_PALETTE = [
+  { name: "rust",    bg: "var(--tag-rust-bg)",    fg: "var(--tag-rust-fg)" },
+  { name: "amber",   bg: "var(--tag-amber-bg)",   fg: "var(--tag-amber-fg)" },
+  { name: "forest",  bg: "var(--tag-forest-bg)",  fg: "var(--tag-forest-fg)" },
+  { name: "sea",     bg: "var(--tag-sea-bg)",     fg: "var(--tag-sea-fg)" },
+  { name: "berry",   bg: "var(--tag-berry-bg)",   fg: "var(--tag-berry-fg)" },
+  { name: "plum",    bg: "var(--tag-plum-bg)",    fg: "var(--tag-plum-fg)" },
+  { name: "indigo",  bg: "var(--tag-indigo-bg)",  fg: "var(--tag-indigo-fg)" },
+  { name: "teal",    bg: "var(--tag-teal-bg)",    fg: "var(--tag-teal-fg)" },
+  { name: "olive",   bg: "var(--tag-olive-bg)",   fg: "var(--tag-olive-fg)" },
+  { name: "ochre",   bg: "var(--tag-ochre-bg)",   fg: "var(--tag-ochre-fg)" },
+  { name: "crimson", bg: "var(--tag-crimson-bg)", fg: "var(--tag-crimson-fg)" },
+  { name: "slate",   bg: "var(--tag-slate-bg)",   fg: "var(--tag-slate-fg)" }
+];
+
+function tagHueFromHash(tag) {
+  const str = String(tag || "").toLowerCase().trim().replace(/^#/, "");
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const idx = (hash >>> 0) % TAG_PALETTE.length;
+  return TAG_PALETTE[idx];
+}
+
+function tagStyle(tag) {
+  const entry = tagHueFromHash(tag);
+  return `background-color: ${entry.bg}; color: ${entry.fg};`;
 }
 
 /* ============================================================================
@@ -365,6 +400,22 @@ function mockApiHandler(path, opts = {}) {
     }
   }
 
+  if (method === "GET") {
+    const itemMatch = path.match(/^\/api\/items\/([^/?#]+)$/);
+    if (itemMatch) {
+      const id = itemMatch[1];
+      const item = MOCK_DATA.items.find(i => i.id === id);
+      if (item) {
+        return {
+          ...item,
+          content: item.content || `# ${item.title}\n\n${item.summary}\n\nSaved from ${item.url}.`,
+          body_md: item.content || `# ${item.title}\n\n${item.summary}\n\nSaved from ${item.url}.`,
+          frontmatter: { title: item.title, url: item.url, type: item.type, tags: (item.tags || []).join(", ") }
+        };
+      }
+    }
+  }
+
   if (path.startsWith("/api/today") || path.startsWith("/api/items")) {
     return { items: [...MOCK_DATA.items] };
   }
@@ -422,12 +473,20 @@ function pageToday() {
       stale: 7
     },
 
+    // 365-day contribution calendar + 90-day sparkline
+    calendarCells: [],
+    calendarMonths: [],
+    yearTotal: 0,
+    selectedDay: null,
+    calendarTooltip: { visible: false, x: 0, y: 0, text: "" },
+
     // 90-day sparkline bars: 90 entries, each with x, height, color, opacity
     sparklineBars: [],
     ninetyDayTotal: 0,
 
     async init() {
       this.updateGreeting();
+      this.generateCalendar();
       this.generateSparkline();
       await this.loadItems();
     },
@@ -438,6 +497,158 @@ function pageToday() {
       if (hour >= 5 && hour < 12) timeGreeting = "Good morning";
       else if (hour >= 12 && hour < 17) timeGreeting = "Good afternoon";
       this.greeting = `${timeGreeting}, Aswath.`;
+    },
+
+    itemDateIso(savedAt) {
+      if (!savedAt) return "";
+      const ms = typeof savedAt === "number" && savedAt < 1e11 ? savedAt * 1000 : Number(savedAt);
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) return "";
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    },
+
+    filteredTodayItems() {
+      if (!this.selectedDay) return this.items;
+      return this.items.filter(item => this.itemDateIso(item.saved_at) === this.selectedDay);
+    },
+
+    clearDayFilter() {
+      this.selectedDay = null;
+    },
+
+    bucketForCount(count) {
+      if (!count || count <= 0) return { bucket: 0, fill: "var(--mute)", opacity: "0.14" };
+      if (count === 1) return { bucket: 1, fill: "var(--accent)", opacity: "0.32" };
+      if (count <= 3) return { bucket: 2, fill: "var(--accent)", opacity: "0.55" };
+      if (count <= 6) return { bucket: 3, fill: "var(--accent)", opacity: "0.78" };
+      return { bucket: 4, fill: "var(--accent)", opacity: "1" };
+    },
+
+    generateCalendar() {
+      const cells = [];
+      const months = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Build counts map from any loaded items plus a calm deterministic baseline
+      const itemCounts = {};
+      (this.items || []).forEach(it => {
+        const iso = this.itemDateIso(it.saved_at);
+        if (iso) itemCounts[iso] = (itemCounts[iso] || 0) + 1;
+      });
+
+      const seedPattern = [
+        0, 1, 0, 2, 3, 0, 1, 4, 2, 0, 0, 1, 5, 7, 2, 0, 1, 3, 0, 2,
+        1, 0, 0, 2, 4, 6, 1, 0, 3, 2, 8, 4, 1, 0, 0, 2, 1, 3, 5, 2,
+        0, 1, 0, 0, 2, 3, 1, 4, 0, 2, 1, 0, 3, 6, 7, 2, 1, 0, 0, 1
+      ];
+
+      let total = 0;
+      let lastMonth = -1;
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+      for (let i = 0; i < 365; i++) {
+        const offsetDays = 364 - i;
+        const d = new Date(today.getTime() - offsetDays * 86400 * 1000);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const labelDate = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+        const baseCount = seedPattern[(i * 7 + d.getDate()) % seedPattern.length];
+        const count = itemCounts[dateStr] !== undefined ? Math.max(itemCounts[dateStr], baseCount) : baseCount;
+        total += count;
+
+        const col = Math.floor(i / 7);
+        const row = i % 7;
+        const x = col * 14 + 2;
+        const y = row * 12 + 18;
+
+        if (row === 0 && d.getMonth() !== lastMonth) {
+          if (months.length === 0 || (x - months[months.length - 1].x) >= 28) {
+            months.push({ label: monthNames[d.getMonth()], x });
+          }
+          lastMonth = d.getMonth();
+        }
+
+        const b = this.bucketForCount(count);
+        cells.push({
+          date: dateStr,
+          labelDate,
+          count,
+          bucket: b.bucket,
+          fill: b.fill,
+          opacity: b.opacity,
+          x,
+          y
+        });
+      }
+
+      this.calendarCells = cells;
+      this.calendarMonths = months;
+      this.yearTotal = total;
+    },
+
+    renderCalendar() {
+      const monthLabels = (this.calendarMonths || []).map(m =>
+        `<text x="${m.x}" y="11" fill="var(--mute)" font-size="9" font-family="var(--font-mono)">${m.label}</text>`
+      ).join("");
+
+      const rects = (this.calendarCells || []).map(cell => {
+        const isSelected = this.selectedDay === cell.date;
+        const strokeAttr = isSelected
+          ? `stroke="var(--ink)" stroke-width="1.5"`
+          : `stroke="none"`;
+        const saveWord = cell.count === 1 ? "save" : "saves";
+        return `<rect class="calendar-cell" data-date="${cell.date}" data-label="${cell.labelDate}" data-count="${cell.count}" data-bucket="${cell.bucket}" x="${cell.x}" y="${cell.y}" width="11" height="10" rx="2" fill="${cell.fill}" fill-opacity="${cell.opacity}" ${strokeAttr}><title>${cell.date}: ${cell.count} ${saveWord}</title></rect>`;
+      }).join("");
+
+      return monthLabels + rects;
+    },
+
+    handleCalendarHover(e) {
+      const rect = e.target.closest("rect.calendar-cell");
+      if (!rect) {
+        this.calendarTooltip.visible = false;
+        return;
+      }
+      const date = rect.getAttribute("data-date");
+      const count = Number(rect.getAttribute("data-count") || 0);
+      const saveWord = count === 1 ? "save" : "saves";
+      this.calendarTooltip.text = `${date} · ${count} ${saveWord}`;
+      this.calendarTooltip.visible = true;
+      this.moveCalendarTooltip(e);
+    },
+
+    moveCalendarTooltip(e) {
+      if (!this.calendarTooltip.visible) return;
+      const wrap = e.currentTarget;
+      if (!wrap) return;
+      const bounds = wrap.getBoundingClientRect();
+      this.calendarTooltip.x = Math.min(Math.max(40, e.clientX - bounds.left), bounds.width - 60);
+      this.calendarTooltip.y = Math.max(4, e.clientY - bounds.top - 30);
+    },
+
+    hideCalendarTooltip() {
+      this.calendarTooltip.visible = false;
+    },
+
+    handleCalendarClick(e) {
+      const rect = e.target.closest("rect.calendar-cell");
+      if (!rect) return;
+      const date = rect.getAttribute("data-date");
+      if (!date) return;
+      if (this.selectedDay === date) {
+        this.selectedDay = null;
+        toast("Cleared day filter", "info");
+      } else {
+        this.selectedDay = date;
+        toast(`Filtered Today to ${date}`, "info");
+      }
     },
 
     renderSparkline() {
@@ -452,7 +663,6 @@ function pageToday() {
       // 90 days of activity. ViewBox 0 0 720 60.
       // Bar width: 6px, gap: 2px (90 bars * 8px = 720px width).
       const bars = [];
-      const now = Date.now();
       // Seeded deterministic counts for calm presentation
       const countsPattern = [
         1, 0, 2, 3, 5, 4, 2, 0, 1, 3, 4, 6, 8, 5, 2, 1, 0, 0, 2, 4, 3, 5,
@@ -481,6 +691,7 @@ function pageToday() {
       try {
         const res = await api("/api/today");
         this.items = (res.items || []).slice(0, 5);
+        this.generateCalendar();
       } catch (err) {
         this.errorState = err.message || "Failed to load today items";
         this.items = [];
@@ -546,6 +757,11 @@ function pageLibrary() {
     ],
 
     async init() {
+      window.addEventListener("clipper-filter-tag", (e) => {
+        if (e.detail && typeof e.detail.tag === "string") {
+          this.selectedTag = e.detail.tag;
+        }
+      });
       await this.loadItems();
     },
 
@@ -1337,7 +1553,7 @@ function clipperShell() {
     detailChatMessages: [],
     detailChatInput: "",
 
-    openDetail(item) {
+    async openDetail(item) {
       this.activeDetailItem = item;
       this.detailChatOpen = false;
       this.detailChatMessages = [
@@ -1346,6 +1562,16 @@ function clipperShell() {
           text: `Ask me anything about "${item.title}". I can synthesize concepts, extract code snippets, or compare it with other clips in your archive.`
         }
       ];
+      if (item && item.id && !item.content) {
+        try {
+          const full = await api(`/api/items/${encodeURIComponent(item.id)}`);
+          if (full && this.activeDetailItem && this.activeDetailItem.id === item.id) {
+            this.activeDetailItem = { ...item, ...full };
+          }
+        } catch (err) {
+          console.warn("Could not fetch full item body:", err);
+        }
+      }
     },
 
     closeDetail() {
@@ -1440,6 +1666,252 @@ function clipperShell() {
       this.initRouter();
       this.initKeybindings();
       this.initNetwork();
+      this.loadPaletteCache();
+    },
+
+    // Command Palette (Cmd+K / Ctrl+K)
+    paletteOpen: false,
+    paletteQuery: "",
+    paletteIndex: 0,
+    paletteItems: [],
+
+    // Inline Hover Preview (600ms delay)
+    hoverPreview: {
+      visible: false,
+      item: null,
+      x: 0,
+      y: 0
+    },
+    _hoverTimer: null,
+
+    async loadPaletteCache() {
+      try {
+        const res = await api("/api/items?status=all&limit=50");
+        if (res && Array.isArray(res.items)) {
+          this.paletteItems = res.items;
+        }
+      } catch (e) {
+        this.paletteItems = [...MOCK_DATA.items];
+      }
+    },
+
+    openPalette() {
+      this.paletteOpen = true;
+      this.paletteQuery = "";
+      this.paletteIndex = 0;
+      this.loadPaletteCache();
+      this.$nextTick(() => {
+        const input = document.getElementById("cmdPaletteInput");
+        if (input) input.focus();
+      });
+    },
+
+    closePalette() {
+      this.paletteOpen = false;
+      this.paletteQuery = "";
+    },
+
+    fuzzyMatch(query, target) {
+      if (!query) return true;
+      const q = query.toLowerCase().trim();
+      const t = String(target || "").toLowerCase();
+      if (t.includes(q)) return true;
+      let qi = 0;
+      for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+        if (t[ti] === q[qi]) qi++;
+      }
+      return qi === q.length;
+    },
+
+    paletteResults() {
+      const raw = (this.paletteQuery || "").trim();
+      const results = [];
+
+      // 1. Quick-save input ('s <url>')
+      if (/^s\s+/i.test(raw)) {
+        const urlPart = raw.replace(/^s\s+/i, "").trim();
+        results.push({
+          id: "quicksave",
+          kind: "quicksave",
+          group: "Quick Save",
+          title: urlPart ? `Save URL: ${urlPart}` : "Type a URL after 's ' to quick-save…",
+          subtitle: "POST /api/clips",
+          url: urlPart
+        });
+      }
+
+      const q = raw.replace(/^s\s+/i, "");
+
+      // 2. Pages (Today / Library / Inbox / Ask / Skills / Settings)
+      const pages = [
+        { page: "today", title: "Today", subtitle: "Daily briefing, activity calendar & metrics" },
+        { page: "library", title: "Library", subtitle: "Browse & filter all saved items" },
+        { page: "inbox", title: "Inbox", subtitle: "Triage new saves" },
+        { page: "ask", title: "Ask", subtitle: "Chat with your second brain" },
+        { page: "skills", title: "Skills", subtitle: "Extraction templates & workflows" },
+        { page: "settings", title: "Settings", subtitle: "Soul, memory, providers & pairing" }
+      ];
+      pages.forEach(p => {
+        if (!raw || this.fuzzyMatch(raw, p.title + " " + p.subtitle)) {
+          results.push({
+            id: "page-" + p.page,
+            kind: "page",
+            group: "Pages",
+            title: p.title,
+            subtitle: p.subtitle,
+            page: p.page
+          });
+        }
+      });
+
+      // 3. Recent items (top 8)
+      const sourceItems = (this.paletteItems && this.paletteItems.length > 0) ? this.paletteItems : MOCK_DATA.items;
+      const matchingItems = sourceItems
+        .filter(it => !raw || this.fuzzyMatch(q || raw, `${it.title || ""} ${it.summary || ""} ${it.url || ""} ${(it.tags || []).join(" ")}`))
+        .slice(0, 8);
+      matchingItems.forEach(it => {
+        results.push({
+          id: "item-" + it.id,
+          kind: "item",
+          group: "Recent Items",
+          title: it.title || it.url,
+          subtitle: it.type || "article",
+          item: it
+        });
+      });
+
+      // 4. Tags
+      const tagSet = new Set();
+      sourceItems.forEach(it => (it.tags || []).forEach(t => tagSet.add(t)));
+      Array.from(tagSet)
+        .filter(t => !raw || this.fuzzyMatch(raw.replace(/^#/, ""), t))
+        .slice(0, 12)
+        .forEach(t => {
+          results.push({
+            id: "tag-" + t,
+            kind: "tag",
+            group: "Tags",
+            title: "#" + t,
+            subtitle: "Filter Library by tag",
+            tag: t
+          });
+        });
+
+      return results;
+    },
+
+    movePaletteSelection(delta) {
+      const list = this.paletteResults();
+      if (list.length === 0) {
+        this.paletteIndex = 0;
+        return;
+      }
+      this.paletteIndex = (this.paletteIndex + delta + list.length) % list.length;
+    },
+
+    async executePaletteEntry(entry) {
+      if (!entry) {
+        const list = this.paletteResults();
+        entry = list[this.paletteIndex];
+      }
+      if (!entry) return;
+
+      if (entry.kind === "quicksave") {
+        const url = (entry.url || "").trim();
+        if (!url) {
+          toast("Enter a valid URL after 's '", "danger");
+          return;
+        }
+        const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        this.closePalette();
+        try {
+          await api("/api/clips", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: normalized })
+          });
+          toast(`Quick-saved ${normalized}`, "info");
+          this.loadPaletteCache();
+        } catch (err) {
+          toast(`Quick-save failed: ${err.message}`, "danger");
+        }
+        return;
+      }
+
+      if (entry.kind === "page") {
+        this.closePalette();
+        this.navigate(entry.page);
+        return;
+      }
+
+      if (entry.kind === "item") {
+        this.closePalette();
+        this.openDetail(entry.item);
+        return;
+      }
+
+      if (entry.kind === "tag") {
+        this.closePalette();
+        this.navigate("library");
+        window.dispatchEvent(new CustomEvent("clipper-filter-tag", { detail: { tag: entry.tag } }));
+        toast(`Filtered Library by #${entry.tag}`, "info");
+      }
+    },
+
+    // Hover Preview (600ms dwell)
+    startHoverPreview(item, event) {
+      this.cancelHoverPreview();
+      if (!item) return;
+      const clientX = event ? event.clientX : 200;
+      const clientY = event ? event.clientY : 200;
+      this._hoverTimer = setTimeout(() => {
+        this.updateHoverCoords(clientX, clientY);
+        this.hoverPreview.item = item;
+        this.hoverPreview.visible = true;
+      }, 600);
+    },
+
+    moveHoverPreview(event) {
+      if (!event) return;
+      if (this.hoverPreview.visible) {
+        this.updateHoverCoords(event.clientX, event.clientY);
+      }
+    },
+
+    updateHoverCoords(cx, cy) {
+      const vw = window.innerWidth || 1200;
+      const vh = window.innerHeight || 800;
+      const panelW = 320;
+      const panelH = 180;
+      let x = cx + 16;
+      let y = cy + 16;
+      if (x + panelW > vw - 16) x = Math.max(16, cx - panelW - 12);
+      if (y + panelH > vh - 16) y = Math.max(16, cy - panelH - 12);
+      this.hoverPreview.x = x;
+      this.hoverPreview.y = y;
+    },
+
+    cancelHoverPreview() {
+      if (this._hoverTimer) {
+        clearTimeout(this._hoverTimer);
+        this._hoverTimer = null;
+      }
+      this.hoverPreview.visible = false;
+      this.hoverPreview.item = null;
+    },
+
+    itemHeroImage(item) {
+      if (!item) return null;
+      if (item.hero_image || item.image || item.thumbnail) {
+        return item.hero_image || item.image || item.thumbnail;
+      }
+      if (item.frontmatter && (item.frontmatter.image || item.frontmatter.hero_image)) {
+        return item.frontmatter.image || item.frontmatter.hero_image;
+      }
+      if (item.type === "photo" && item.url && /\.(png|jpe?g|webp|gif|svg)$/i.test(item.url)) {
+        return item.url;
+      }
+      return null;
     },
 
     initNetwork() {
@@ -1457,6 +1929,7 @@ function clipperShell() {
       const validPages = ["today", "library", "inbox", "ask", "skills", "settings"];
 
       const handleRoute = () => {
+        this.cancelHoverPreview();
         const hash = window.location.hash.replace(/^#\/?/, "").toLowerCase().trim();
         if (validPages.includes(hash)) {
           this.currentPage = hash;
@@ -1471,11 +1944,24 @@ function clipperShell() {
 
     initKeybindings() {
       window.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+          e.preventDefault();
+          if (this.paletteOpen) {
+            this.closePalette();
+          } else {
+            this.openPalette();
+          }
+          return;
+        }
+        if (e.key === "Escape" && this.paletteOpen) {
+          e.preventDefault();
+          this.closePalette();
+          return;
+        }
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
         if (e.key === "/") {
           e.preventDefault();
-          const searchInput = document.getElementById("globalSearchInput");
-          if (searchInput) searchInput.focus();
+          this.openPalette();
         }
       });
     },
@@ -1495,6 +1981,10 @@ function clipperShell() {
 
     typeMeta(type) {
       return getTypeMeta(type);
+    },
+
+    tagStyle(tag) {
+      return tagStyle(tag);
     }
   };
 }
@@ -1507,3 +1997,6 @@ window.toast = toast;
 window.TYPE_CONFIG = TYPE_CONFIG;
 window.getTypeMeta = getTypeMeta;
 window.renderTypeBadge = renderTypeBadge;
+window.TAG_PALETTE = TAG_PALETTE;
+window.tagHueFromHash = tagHueFromHash;
+window.tagStyle = tagStyle;
