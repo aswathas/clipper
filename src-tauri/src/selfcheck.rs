@@ -605,6 +605,27 @@ fn hag4_rest_api() -> Result<(), String> {
         return Err("dashboard response did not look like HTML".into());
     }
 
+    // ---- the v0.3.0 fallback serves the whole src/ui directory ----
+    let (status, body) = http(port, "GET", "/app.js", None)?;
+    if status != 200 {
+        return Err(format!("GET /app.js -> {status}"));
+    }
+    if body.is_empty() {
+        return Err("the JavaScript asset is empty".into());
+    }
+    let (status, _) = http(port, "GET", "/styles.css", None)?;
+    if status != 200 {
+        return Err(format!("GET /styles.css -> {status}"));
+    }
+    let (status, _) = http(port, "GET", "/pwa/manifest.json", None)?;
+    if status != 200 {
+        return Err(format!("GET /pwa/manifest.json -> {status}"));
+    }
+    let (status, _) = http(port, "GET", "/no-such-asset.css", None)?;
+    if status != 404 {
+        return Err(format!("unknown static path -> {status}, expected 404"));
+    }
+
     Ok(())
 }
 
@@ -1392,6 +1413,34 @@ pub fn integration_api() -> i32 {
         let payload: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
         if payload["total"].as_i64() != Some(1) {
             return Err(format!("a quoted phrase search returned {}", payload["total"]));
+        }
+        Ok(())
+    })());
+
+    // 7. the v0.3.0 fallback serves the whole src/ui directory
+    gate!("static_serves_the_ui_directory", (|| -> Result<(), String> {
+        let (status, body) = http(port, "GET", "/", None)?;
+        if status != 200 {
+            return Err(format!("GET / -> {status}"));
+        }
+        if !body.to_ascii_lowercase().contains("<html") {
+            return Err("the dashboard response did not look like HTML".into());
+        }
+        let (status, _) = http(port, "GET", "/app.js", None)?;
+        if status != 200 {
+            return Err(format!("GET /app.js -> {status}"));
+        }
+        let (status, _) = http(port, "GET", "/styles.css", None)?;
+        if status != 200 {
+            return Err(format!("GET /styles.css -> {status}"));
+        }
+        let (status, _) = http(port, "GET", "/pwa/manifest.json", None)?;
+        if status != 200 {
+            return Err(format!("GET /pwa/manifest.json -> {status}"));
+        }
+        let (status, _) = http(port, "GET", "/no-such-asset.css", None)?;
+        if status != 404 {
+            return Err(format!("unknown static path -> {status}, expected 404"));
         }
         Ok(())
     })());
