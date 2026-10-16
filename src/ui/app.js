@@ -438,12 +438,20 @@ function pageToday() {
       stale: 7
     },
 
+    // 365-day contribution calendar + 90-day sparkline
+    calendarCells: [],
+    calendarMonths: [],
+    yearTotal: 0,
+    selectedDay: null,
+    calendarTooltip: { visible: false, x: 0, y: 0, text: "" },
+
     // 90-day sparkline bars: 90 entries, each with x, height, color, opacity
     sparklineBars: [],
     ninetyDayTotal: 0,
 
     async init() {
       this.updateGreeting();
+      this.generateCalendar();
       this.generateSparkline();
       await this.loadItems();
     },
@@ -454,6 +462,158 @@ function pageToday() {
       if (hour >= 5 && hour < 12) timeGreeting = "Good morning";
       else if (hour >= 12 && hour < 17) timeGreeting = "Good afternoon";
       this.greeting = `${timeGreeting}, Aswath.`;
+    },
+
+    itemDateIso(savedAt) {
+      if (!savedAt) return "";
+      const ms = typeof savedAt === "number" && savedAt < 1e11 ? savedAt * 1000 : Number(savedAt);
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) return "";
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    },
+
+    filteredTodayItems() {
+      if (!this.selectedDay) return this.items;
+      return this.items.filter(item => this.itemDateIso(item.saved_at) === this.selectedDay);
+    },
+
+    clearDayFilter() {
+      this.selectedDay = null;
+    },
+
+    bucketForCount(count) {
+      if (!count || count <= 0) return { bucket: 0, fill: "var(--mute)", opacity: "0.14" };
+      if (count === 1) return { bucket: 1, fill: "var(--accent)", opacity: "0.32" };
+      if (count <= 3) return { bucket: 2, fill: "var(--accent)", opacity: "0.55" };
+      if (count <= 6) return { bucket: 3, fill: "var(--accent)", opacity: "0.78" };
+      return { bucket: 4, fill: "var(--accent)", opacity: "1" };
+    },
+
+    generateCalendar() {
+      const cells = [];
+      const months = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Build counts map from any loaded items plus a calm deterministic baseline
+      const itemCounts = {};
+      (this.items || []).forEach(it => {
+        const iso = this.itemDateIso(it.saved_at);
+        if (iso) itemCounts[iso] = (itemCounts[iso] || 0) + 1;
+      });
+
+      const seedPattern = [
+        0, 1, 0, 2, 3, 0, 1, 4, 2, 0, 0, 1, 5, 7, 2, 0, 1, 3, 0, 2,
+        1, 0, 0, 2, 4, 6, 1, 0, 3, 2, 8, 4, 1, 0, 0, 2, 1, 3, 5, 2,
+        0, 1, 0, 0, 2, 3, 1, 4, 0, 2, 1, 0, 3, 6, 7, 2, 1, 0, 0, 1
+      ];
+
+      let total = 0;
+      let lastMonth = -1;
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+      for (let i = 0; i < 365; i++) {
+        const offsetDays = 364 - i;
+        const d = new Date(today.getTime() - offsetDays * 86400 * 1000);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const labelDate = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+        const baseCount = seedPattern[(i * 7 + d.getDate()) % seedPattern.length];
+        const count = itemCounts[dateStr] !== undefined ? Math.max(itemCounts[dateStr], baseCount) : baseCount;
+        total += count;
+
+        const col = Math.floor(i / 7);
+        const row = i % 7;
+        const x = col * 14 + 2;
+        const y = row * 12 + 18;
+
+        if (row === 0 && d.getMonth() !== lastMonth) {
+          if (months.length === 0 || (x - months[months.length - 1].x) >= 28) {
+            months.push({ label: monthNames[d.getMonth()], x });
+          }
+          lastMonth = d.getMonth();
+        }
+
+        const b = this.bucketForCount(count);
+        cells.push({
+          date: dateStr,
+          labelDate,
+          count,
+          bucket: b.bucket,
+          fill: b.fill,
+          opacity: b.opacity,
+          x,
+          y
+        });
+      }
+
+      this.calendarCells = cells;
+      this.calendarMonths = months;
+      this.yearTotal = total;
+    },
+
+    renderCalendar() {
+      const monthLabels = (this.calendarMonths || []).map(m =>
+        `<text x="${m.x}" y="11" fill="var(--mute)" font-size="9" font-family="var(--font-mono)">${m.label}</text>`
+      ).join("");
+
+      const rects = (this.calendarCells || []).map(cell => {
+        const isSelected = this.selectedDay === cell.date;
+        const strokeAttr = isSelected
+          ? `stroke="var(--ink)" stroke-width="1.5"`
+          : `stroke="none"`;
+        const saveWord = cell.count === 1 ? "save" : "saves";
+        return `<rect class="calendar-cell" data-date="${cell.date}" data-label="${cell.labelDate}" data-count="${cell.count}" data-bucket="${cell.bucket}" x="${cell.x}" y="${cell.y}" width="11" height="10" rx="2" fill="${cell.fill}" fill-opacity="${cell.opacity}" ${strokeAttr}><title>${cell.date}: ${cell.count} ${saveWord}</title></rect>`;
+      }).join("");
+
+      return monthLabels + rects;
+    },
+
+    handleCalendarHover(e) {
+      const rect = e.target.closest("rect.calendar-cell");
+      if (!rect) {
+        this.calendarTooltip.visible = false;
+        return;
+      }
+      const date = rect.getAttribute("data-date");
+      const count = Number(rect.getAttribute("data-count") || 0);
+      const saveWord = count === 1 ? "save" : "saves";
+      this.calendarTooltip.text = `${date} · ${count} ${saveWord}`;
+      this.calendarTooltip.visible = true;
+      this.moveCalendarTooltip(e);
+    },
+
+    moveCalendarTooltip(e) {
+      if (!this.calendarTooltip.visible) return;
+      const wrap = e.currentTarget;
+      if (!wrap) return;
+      const bounds = wrap.getBoundingClientRect();
+      this.calendarTooltip.x = Math.min(Math.max(40, e.clientX - bounds.left), bounds.width - 60);
+      this.calendarTooltip.y = Math.max(4, e.clientY - bounds.top - 30);
+    },
+
+    hideCalendarTooltip() {
+      this.calendarTooltip.visible = false;
+    },
+
+    handleCalendarClick(e) {
+      const rect = e.target.closest("rect.calendar-cell");
+      if (!rect) return;
+      const date = rect.getAttribute("data-date");
+      if (!date) return;
+      if (this.selectedDay === date) {
+        this.selectedDay = null;
+        toast("Cleared day filter", "info");
+      } else {
+        this.selectedDay = date;
+        toast(`Filtered Today to ${date}`, "info");
+      }
     },
 
     renderSparkline() {
@@ -468,7 +628,6 @@ function pageToday() {
       // 90 days of activity. ViewBox 0 0 720 60.
       // Bar width: 6px, gap: 2px (90 bars * 8px = 720px width).
       const bars = [];
-      const now = Date.now();
       // Seeded deterministic counts for calm presentation
       const countsPattern = [
         1, 0, 2, 3, 5, 4, 2, 0, 1, 3, 4, 6, 8, 5, 2, 1, 0, 0, 2, 4, 3, 5,
@@ -497,6 +656,7 @@ function pageToday() {
       try {
         const res = await api("/api/today");
         this.items = (res.items || []).slice(0, 5);
+        this.generateCalendar();
       } catch (err) {
         this.errorState = err.message || "Failed to load today items";
         this.items = [];

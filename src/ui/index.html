@@ -158,12 +158,20 @@
           <!-- 2. FOR YOU TODAY -->
           <div class="today-section">
             <div class="section-caption">
-              <span>For You Today</span>
-              <a href="#/library" style="color: var(--accent); font-size: var(--fs-xs); font-weight: 500;" x-text="items.length + ' items →'"></a>
+              <div style="display: flex; align-items: center; gap: var(--sp-2);">
+                <span>For You Today</span>
+                <template x-if="selectedDay">
+                  <span class="calendar-filter-pill">
+                    <span x-text="'Filtered: ' + selectedDay"></span>
+                    <button type="button" class="calendar-filter-clear" @click="clearDayFilter()" aria-label="Clear day filter">✕</button>
+                  </span>
+                </template>
+              </div>
+              <a href="#/library" style="color: var(--accent); font-size: var(--fs-xs); font-weight: 500;" x-text="filteredTodayItems().length + ' items →'"></a>
             </div>
 
             <div class="foryou-cards">
-              <template x-for="item in items" :key="item.id">
+              <template x-for="item in filteredTodayItems()" :key="item.id">
                 <button type="button" class="foryou-card" @click="openDetail(item)">
                   <!-- Type color accent bar -->
                   <div class="foryou-accent-bar" :style="'background-color: var(--type-' + item.type + ');'"></div>
@@ -199,6 +207,11 @@
               </template>
             </div>
 
+            <div x-show="!errorState && items.length > 0 && filteredTodayItems().length === 0 && selectedDay" class="empty-state" style="margin: var(--sp-4) auto; padding: var(--sp-4);">
+              <p class="empty-state-desc" style="margin-bottom: var(--sp-3);" x-text="'No items saved on ' + selectedDay + '.'"></p>
+              <button type="button" class="btn btn-secondary btn-sm" @click="clearDayFilter()">Show all Today items</button>
+            </div>
+
             <!-- Today Error State (DESIGN.md Section 10) -->
             <div x-show="errorState" class="page-error-card" role="alert">
               <h3 class="page-error-title">Unable to connect to library</h3>
@@ -232,10 +245,43 @@
             </div>
           </div>
 
-          <!-- 4. ACTIVITY (90-day sparkline) -->
+          <!-- 4. ACTIVITY (365-day contribution calendar + 90-day sparkline) -->
           <div class="today-section">
-            <div class="section-caption">Activity ─── last 90 days ───</div>
-            <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow-1);">
+            <div class="section-caption">
+              <span>Activity ─── 365-day calendar &amp; last 90 days ───</span>
+              <span style="font-weight: 600; color: var(--ink); text-transform: none; letter-spacing: 0;" x-text="yearTotal + ' saves this year'"></span>
+            </div>
+            <div class="activity-card">
+              <!-- 365-cell contribution heatmap -->
+              <div class="calendar-heatmap-wrap"
+                   @mouseover="handleCalendarHover($event)"
+                   @mousemove="moveCalendarTooltip($event)"
+                   @mouseleave="hideCalendarTooltip()"
+                   @click="handleCalendarClick($event)">
+                <svg class="calendar-svg" viewBox="0 0 742 104" role="img" :aria-label="'365-day contribution calendar, total ' + yearTotal + ' saves'">
+                  <g x-html="renderCalendar()"></g>
+                </svg>
+                <div x-show="calendarTooltip.visible"
+                     x-cloak
+                     class="calendar-tooltip"
+                     :style="'left: ' + calendarTooltip.x + 'px; top: ' + calendarTooltip.y + 'px;'"
+                     x-text="calendarTooltip.text"></div>
+              </div>
+              <div class="calendar-legend-row">
+                <span style="font-size: var(--fs-xs); color: var(--mute-2);">Click any day to filter Today</span>
+                <div class="calendar-legend-scale" aria-label="Save count buckets: 0, 1, 2-3, 4-6, 7+">
+                  <span>Less</span>
+                  <span class="calendar-bucket-swatch bucket-0" title="0 saves"></span>
+                  <span class="calendar-bucket-swatch bucket-1" title="1 save"></span>
+                  <span class="calendar-bucket-swatch bucket-2" title="2–3 saves"></span>
+                  <span class="calendar-bucket-swatch bucket-3" title="4–6 saves"></span>
+                  <span class="calendar-bucket-swatch bucket-4" title="7+ saves"></span>
+                  <span>More</span>
+                </div>
+              </div>
+
+              <hr class="slideover-divider" style="margin: var(--sp-3) 0;" />
+
               <svg class="sparkline-svg" viewBox="0 0 720 60" preserveAspectRatio="none" role="img" :aria-label="'90-day activity sparkline, total ' + ninetyDayTotal + ' saves'">
                 <g x-html="renderSparkline()"></g>
               </svg>
