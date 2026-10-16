@@ -1038,6 +1038,30 @@ button {
   background-color: var(--accent-soft);
 }
 
+.inbox-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+/* Card buttons inherit text-align from button default (center); reset to left */
+.foryou-card,
+.library-card,
+.library-list-row,
+.slideover-related-card,
+.ask-history-item {
+  text-align: left;
+}
+
 .inbox-checkbox {
   width: 18px;
   height: 18px;

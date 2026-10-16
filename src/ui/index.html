@@ -177,7 +177,7 @@
 
             <div class="foryou-cards">
               <template x-for="item in items" :key="item.id">
-                <article class="foryou-card" @click="openDetail(item)" style="cursor: pointer;">
+                <button type="button" class="foryou-card" @click="openDetail(item)">
                   <!-- Type color accent bar -->
                   <div class="foryou-accent-bar" :style="'background-color: var(--type-' + item.type + ');'"></div>
 
@@ -208,7 +208,7 @@
                     </div>
                     <span style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="(item.reading_time_min || 5) + ' min'"></span>
                   </div>
-                </article>
+                </button>
               </template>
             </div>
 
@@ -397,7 +397,7 @@
           <!-- Grid View -->
           <div x-show="!loading && viewMode === 'grid' && filteredItems().length > 0" class="library-grid">
             <template x-for="item in filteredItems()" :key="item.id">
-              <article class="library-card" @click="openDetail(item)">
+              <button type="button" class="library-card" @click="openDetail(item)">
                 <div class="library-card-accent" :style="{ backgroundColor: getTypeMeta(item.type).colorVar }"></div>
                 
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--sp-2);">
@@ -425,14 +425,14 @@
                   <span x-text="(item.reading_time_min || 5) + ' min read'"></span>
                   <span x-text="item.source || 'web'"></span>
                 </div>
-              </article>
+              </button>
             </template>
           </div>
 
           <!-- List View -->
           <div x-show="viewMode === 'list' && filteredItems().length > 0" class="library-list">
             <template x-for="item in filteredItems()" :key="item.id">
-              <div class="library-list-row" @click="openDetail(item)">
+              <button type="button" class="library-list-row" @click="openDetail(item)">
                 <div x-html="typeBadge(item.type, false)" style="margin-right: var(--sp-2);"></div>
                 <div style="flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-3);">
                   <span style="font-family: var(--font-display); font-size: var(--fs-base); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="item.title"></span>
@@ -444,7 +444,7 @@
                 </div>
                 <div class="decay-dot" :style="{ backgroundColor: decayColor(item.decay_score) }" :title="'Decay score: ' + (item.decay_score || 0)"></div>
                 <span style="font-size: var(--fs-xs); color: var(--mute-2); font-family: var(--font-mono); width: 64px; text-align: right;" x-text="formatAge(item.saved_at)"></span>
-              </div>
+              </button>
             </template>
           </div>
 
@@ -526,10 +526,9 @@
           <div x-show="!loading && filteredItems().length > 0" class="inbox-list">
             <template x-for="(item, idx) in filteredItems()" :key="item.id">
               <div class="inbox-row"
-                   :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }"
-                   @click="openDetail(item)">
-                
-                <!-- Left Checkbox -->
+                   :class="{ 'focused': focusedIndex === idx, 'selected': isSelected(item.id) }">
+
+                <!-- Left Checkbox (sibling of row button) -->
                 <div class="inbox-checkbox"
                      :class="{ 'checked': isSelected(item.id) }"
                      @click.stop="toggleSelect(item.id)"
@@ -537,26 +536,28 @@
                   <span x-show="isSelected(item.id)" class="inbox-checkbox-tick">✓</span>
                 </div>
 
-                <!-- Type Icon & Label -->
-                <div x-html="typeBadge(item.type, false)" style="flex-shrink: 0;"></div>
+                <button type="button" class="inbox-row-main" @click="openDetail(item)">
+                  <!-- Type Icon & Label -->
+                  <div x-html="typeBadge(item.type, false)" style="flex-shrink: 0;"></div>
 
-                <!-- Main Content -->
-                <div class="inbox-row-content">
-                  <div class="inbox-row-header">
-                    <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute-2);" x-text="item.type"></span>
-                    <span class="inbox-row-title" x-text="item.title"></span>
+                  <!-- Main Content -->
+                  <div class="inbox-row-content">
+                    <div class="inbox-row-header">
+                      <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute-2);" x-text="item.type"></span>
+                      <span class="inbox-row-title" x-text="item.title"></span>
+                    </div>
+                    <div class="inbox-row-meta">
+                      <span x-text="item.url ? item.url.replace(/^https?:\/\//, '').split('/')[0] : 'local'"></span>
+                      <span>·</span>
+                      <span x-text="formatAge(item.saved_at)"></span>
+                      <template x-for="tag in (item.tags || [])" :key="tag">
+                        <span>· <span style="color: var(--ink-2);" x-text="'#' + tag"></span></span>
+                      </template>
+                    </div>
                   </div>
-                  <div class="inbox-row-meta">
-                    <span x-text="item.url ? item.url.replace(/^https?:\/\//, '').split('/')[0] : 'local'"></span>
-                    <span>·</span>
-                    <span x-text="formatAge(item.saved_at)"></span>
-                    <template x-for="tag in (item.tags || [])" :key="tag">
-                      <span>· <span style="color: var(--ink-2);" x-text="'#' + tag"></span></span>
-                    </template>
-                  </div>
-                </div>
+                </button>
 
-                <!-- Hover Actions -->
+                <!-- Hover Actions (siblings of row button) -->
                 <div class="inbox-actions" @click.stop>
                   <button type="button" class="inbox-action-chip" @click="archiveItem(item)">Archive</button>
                   <button type="button" class="inbox-action-chip" @click="tagItem(item)">Tag</button>
@@ -616,12 +617,12 @@
               <div class="ask-history-group">
                 <div class="ask-history-heading">Today</div>
                 <template x-for="c in history.today" :key="c.id">
-                  <div class="ask-history-item"
+                  <button type="button" class="ask-history-item"
                        :class="{ 'active': activeConvId === c.id }"
                        @click="loadConversation(c)">
                     <span style="opacity: 0.6;">💬</span>
                     <span x-text="c.title"></span>
-                  </div>
+                  </button>
                 </template>
               </div>
 
@@ -629,12 +630,12 @@
               <div class="ask-history-group">
                 <div class="ask-history-heading">Yesterday</div>
                 <template x-for="c in history.yesterday" :key="c.id">
-                  <div class="ask-history-item"
+                  <button type="button" class="ask-history-item"
                        :class="{ 'active': activeConvId === c.id }"
                        @click="loadConversation(c)">
                     <span style="opacity: 0.6;">💬</span>
                     <span x-text="c.title"></span>
-                  </div>
+                  </button>
                 </template>
               </div>
 
@@ -642,12 +643,12 @@
               <div class="ask-history-group">
                 <div class="ask-history-heading">Older</div>
                 <template x-for="c in history.older" :key="c.id">
-                  <div class="ask-history-item"
+                  <button type="button" class="ask-history-item"
                        :class="{ 'active': activeConvId === c.id }"
                        @click="loadConversation(c)">
                     <span style="opacity: 0.6;">💬</span>
                     <span x-text="c.title"></span>
-                  </div>
+                  </button>
                 </template>
               </div>
             </aside>
@@ -1216,13 +1217,13 @@
           </div>
           <div class="slideover-related-grid">
             <template x-for="rel in getRelatedItems(activeDetailItem)" :key="rel.id">
-              <div class="slideover-related-card" @click="openDetail(rel)">
+              <button type="button" class="slideover-related-card" @click="openDetail(rel)">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                   <span style="font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: var(--mute-2);" x-text="rel.type"></span>
                   <span style="font-size: 10px; color: var(--mute-2);" x-text="(rel.reading_time_min || 5) + 'm'"></span>
                 </div>
                 <div style="font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="rel.title"></div>
-              </div>
+              </button>
             </template>
           </div>
         </div>
