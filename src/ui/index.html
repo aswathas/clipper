@@ -83,7 +83,7 @@
               <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
             </svg>
             <span>Inbox</span>
-            <span class="nav-badge" x-show="unreadInboxCount > 0" x-text="unreadInboxCount"></span>
+            <span class="nav-badge" x-show="unreadInboxCount > 0" x-text="unreadInboxCount" :aria-label="unreadInboxCount + ' unread'"></span>
           </a>
 
           <a href="#/ask" class="rail-nav-link" :class="{ 'active': currentPage === 'ask' }">
@@ -114,19 +114,6 @@
         <div class="user-mood-pill" x-text="userMoodText"></div>
         <div class="rail-actions-row">
           <span style="font-size: var(--fs-xs); color: var(--mute-2);">Paper Theme</span>
-          <button type="button" class="theme-toggle-btn" @click="toggleTheme()" aria-label="Toggle theme">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="5"></circle>
-              <line x1="12" y1="1" x2="12" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="23"></line>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-              <line x1="1" y1="12" x2="3" y2="12"></line>
-              <line x1="21" y1="12" x2="23" y2="12"></line>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-            </svg>
-          </button>
         </div>
       </div>
     </aside>
@@ -249,7 +236,7 @@
           <div class="today-section">
             <div class="section-caption">Activity ─── last 90 days ───</div>
             <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow-1);">
-              <svg class="sparkline-svg" viewBox="0 0 720 60" preserveAspectRatio="none">
+              <svg class="sparkline-svg" viewBox="0 0 720 60" preserveAspectRatio="none" role="img" :aria-label="'90-day activity sparkline, total ' + ninetyDayTotal + ' saves'">
                 <template x-for="(bar, i) in sparklineBars" :key="i">
                   <rect 
                     :x="bar.x" 
@@ -268,7 +255,7 @@
                 <span>90 days ago</span>
                 <span>Last week</span>
                 <span>Today</span>
-                <span style="font-weight: 600; color: var(--ink);">90-day total: 184</span>
+                <span style="font-weight: 600; color: var(--ink);" x-text="'90-day total: ' + ninetyDayTotal"></span>
               </div>
             </div>
           </div>
@@ -594,7 +581,7 @@
           <div x-show="!loading && !errorState && filteredItems().length === 0" class="empty-state">
             <h3 class="empty-state-title">Inbox is zero</h3>
             <p class="empty-state-desc">Everything is filed away in your library.</p>
-            <a href="#/library" class="btn btn-secondary btn-sm">Browse Library →</a>
+            <span class="btn btn-secondary btn-sm">Browse Library →</span>
           </div>
         </section>
 
@@ -675,7 +662,7 @@
               </div>
 
               <!-- Chat Message Thread -->
-              <div x-show="messages.length > 0 || streaming" class="ask-thread">
+              <div x-show="messages.length > 0 || streaming" class="ask-thread" aria-live="polite">
                 <template x-for="(msg, idx) in messages" :key="idx">
                   <div>
                     <!-- User Message Bubble -->
@@ -717,7 +704,7 @@
                 </template>
 
                 <!-- In-Flight Streaming Message (DESIGN.md Section 13) -->
-                <div x-show="streaming" class="ask-assistant-msg" aria-live="polite">
+                <div x-show="streaming" class="ask-assistant-msg">
                   <div class="ask-assistant-essay">
                     <span x-html="renderMarkdown(currentStreamText)"></span>
                     <span class="streaming-cursor" aria-hidden="true"></span>
@@ -1094,8 +1081,8 @@
         <li>Close out 2 stale Go items</li>
       </ul>
       <div style="display: flex; gap: var(--sp-2);">
-        <button type="button" class="btn btn-secondary btn-sm">Edit focus</button>
-        <button type="button" class="btn btn-ghost btn-sm">Read all</button>
+        <span class="btn btn-secondary btn-sm">Edit focus</span>
+        <span class="btn btn-ghost btn-sm">Read all</span>
       </div>
     </aside>
   </div>
@@ -1257,7 +1244,7 @@
   </div>
 
   <!-- Toast Notification Container -->
-  <div class="toast-container" aria-live="assertive">
+  <div class="toast-container" role="status">
     <template x-for="t in toasts" :key="t.id">
       <div class="toast" :class="'toast-' + t.type" x-text="t.message"></div>
     </template>

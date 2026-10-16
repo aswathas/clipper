@@ -425,6 +425,7 @@ function pageToday() {
 
     // 90-day sparkline bars: 90 entries, each with x, height, color, opacity
     sparklineBars: [],
+    ninetyDayTotal: 0,
 
     async init() {
       this.updateGreeting();
@@ -464,6 +465,7 @@ function pageToday() {
         bars.push({ x, y, width: 6, height: barHeight, fill, opacity, count });
       }
       this.sparklineBars = bars;
+      this.ninetyDayTotal = countsPattern.reduce((sum, n) => sum + n, 0);
     },
 
     async loadItems() {
