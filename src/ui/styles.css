@@ -466,6 +466,21 @@ button {
   .main-wrapper {
     padding: var(--sp-4) var(--sp-4) calc(var(--bottom-bar-h) + var(--sp-6)) var(--sp-4);
   }
+  .theme-toggle-btn,
+  .slideover-close-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .inbox-checkbox {
+    width: 24px;
+    height: 24px;
+    position: relative;
+  }
+  .inbox-checkbox::before {
+    content: "";
+    position: absolute;
+    inset: -10px;
+  }
 }
 
 /* --------------------------------------------------------------------------
