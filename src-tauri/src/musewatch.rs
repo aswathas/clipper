@@ -18,7 +18,14 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::config::Config;
+
+/// Suppress the Win32 console window when spawning child processes.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const DEBOUNCE_TICKS: u32 = 2; // 10s of stable title before summarize
@@ -122,10 +129,11 @@ if ($ph -ne [IntPtr]::Zero) {
 Write-Output $title
 Write-Output $proc
 "#;
-    let out = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -146,17 +154,20 @@ fn summarize(title: &str, process: &str) -> String {
         title = title,
         process_name = process,
     );
-    let mut child = match Command::new("claude")
-        .arg("-p")
-        .arg(&prompt)
-        .arg("--output-format")
-        .arg("text")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return String::new(),
+    let mut child = {
+        let mut c = Command::new("claude");
+        c.arg("-p")
+            .arg(&prompt)
+            .arg("--output-format")
+            .arg("text")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        c.creation_flags(CREATE_NO_WINDOW);
+        match c.spawn() {
+            Ok(c) => c,
+            Err(_) => return String::new(),
+        }
     };
     let mut out = String::new();
     if let Some(mut s) = child.stdout.take() {
