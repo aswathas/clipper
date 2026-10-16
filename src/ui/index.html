@@ -237,19 +237,7 @@
             <div class="section-caption">Activity ─── last 90 days ───</div>
             <div style="background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow-1);">
               <svg class="sparkline-svg" viewBox="0 0 720 60" preserveAspectRatio="none" role="img" :aria-label="'90-day activity sparkline, total ' + ninetyDayTotal + ' saves'">
-                <template x-for="(bar, i) in sparklineBars" :key="i">
-                  <rect 
-                    :x="bar.x" 
-                    :y="bar.y" 
-                    :width="bar.width" 
-                    :height="bar.height" 
-                    :fill="bar.fill" 
-                    :opacity="bar.opacity" 
-                    rx="1"
-                  >
-                    <title x-text="bar.count + ' saves'"></title>
-                  </rect>
-                </template>
+                <g x-html="renderSparkline()"></g>
               </svg>
               <div class="sparkline-legend">
                 <span>90 days ago</span>

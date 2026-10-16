@@ -236,7 +236,7 @@ async fn list_items(
         offset: params.offset.unwrap_or(0),
         kind: params.kind.filter(|v| !v.is_empty()),
         tag: params.tag.filter(|v| !v.is_empty()),
-        status: params.status.filter(|v| !v.is_empty()),
+        status: params.status.filter(|v| !v.is_empty() && v != "all"),
         q: params.q.filter(|v| !v.is_empty()),
     };
 

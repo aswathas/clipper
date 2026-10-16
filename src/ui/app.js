@@ -440,6 +440,14 @@ function pageToday() {
       this.greeting = `${timeGreeting}, Aswath.`;
     },
 
+    renderSparkline() {
+      // SVG-namespace workaround: <template x-for> inside <svg> fails to bind in Alpine 3.
+      // Render rects as an SVG string and bind via x-html on a <g>.
+      return (this.sparklineBars || []).map(bar =>
+        `<rect x="${bar.x}" y="${bar.y}" width="${bar.width}" height="${bar.height}" fill="${bar.fill}" opacity="${bar.opacity}" rx="1"><title>${bar.count} saves</title></rect>`
+      ).join("");
+    },
+
     generateSparkline() {
       // 90 days of activity. ViewBox 0 0 720 60.
       // Bar width: 6px, gap: 2px (90 bars * 8px = 720px width).
@@ -1051,7 +1059,7 @@ function pageSkills() {
     ],
 
     editorOpen: false,
-    editingSkill: null,
+    editingSkill: { name: "", description: "", body_md: "", triggers: [], enabled: true },
     isNewSkill: false,
 
     testModalOpen: false,
