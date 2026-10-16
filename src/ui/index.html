@@ -111,6 +111,10 @@
       </div>
 
       <div class="rail-bottom">
+        <button type="button" class="cmd-palette-trigger" @click="openPalette()" aria-label="Open command palette (Ctrl+K)">
+          <span>Search or jump…</span>
+          <kbd>⌘K</kbd>
+        </button>
         <div class="user-mood-pill" x-text="userMoodText"></div>
         <div class="rail-actions-row">
           <span style="font-size: var(--fs-xs); color: var(--mute-2);">Paper Theme</span>
@@ -172,7 +176,11 @@
 
             <div class="foryou-cards">
               <template x-for="item in filteredTodayItems()" :key="item.id">
-                <button type="button" class="foryou-card" @click="openDetail(item)">
+                <button type="button" class="foryou-card"
+                        @click="openDetail(item)"
+                        @mouseenter="startHoverPreview(item, $event)"
+                        @mousemove="moveHoverPreview($event)"
+                        @mouseleave="cancelHoverPreview()">
                   <!-- Type color accent bar -->
                   <div class="foryou-accent-bar" :style="'background-color: var(--type-' + item.type + ');'"></div>
 
@@ -418,7 +426,11 @@
           <!-- Grid View -->
           <div x-show="!loading && viewMode === 'grid' && filteredItems().length > 0" class="library-grid">
             <template x-for="item in filteredItems()" :key="item.id">
-              <button type="button" class="library-card" @click="openDetail(item)">
+              <button type="button" class="library-card"
+                      @click="openDetail(item)"
+                      @mouseenter="startHoverPreview(item, $event)"
+                      @mousemove="moveHoverPreview($event)"
+                      @mouseleave="cancelHoverPreview()">
                 <div class="library-card-accent" :style="{ backgroundColor: getTypeMeta(item.type).colorVar }"></div>
                 
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--sp-2);">
@@ -453,7 +465,11 @@
           <!-- List View -->
           <div x-show="viewMode === 'list' && filteredItems().length > 0" class="library-list">
             <template x-for="item in filteredItems()" :key="item.id">
-              <button type="button" class="library-list-row" @click="openDetail(item)">
+              <button type="button" class="library-list-row"
+                      @click="openDetail(item)"
+                      @mouseenter="startHoverPreview(item, $event)"
+                      @mousemove="moveHoverPreview($event)"
+                      @mouseleave="cancelHoverPreview()">
                 <div x-html="typeBadge(item.type, false)" style="margin-right: var(--sp-2);"></div>
                 <div style="flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-3);">
                   <span style="font-family: var(--font-display); font-size: var(--fs-base); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="item.title"></span>
@@ -1275,6 +1291,84 @@
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- Cmd+K / Ctrl+K Command Palette Modal -->
+  <div x-show="paletteOpen"
+       x-cloak
+       class="cmd-palette-overlay"
+       @click="closePalette()"
+       role="dialog"
+       aria-modal="true"
+       aria-label="Command Palette">
+    <div class="cmd-palette-modal" @click.stop>
+      <div class="cmd-palette-input-row">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--mute); flex-shrink: 0;">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input id="cmdPaletteInput"
+               type="text"
+               class="cmd-palette-input"
+               x-model="paletteQuery"
+               @input="paletteIndex = 0"
+               @keydown.down.prevent="movePaletteSelection(1)"
+               @keydown.up.prevent="movePaletteSelection(-1)"
+               @keydown.enter.prevent="executePaletteEntry()"
+               @keydown.escape.prevent="closePalette()"
+               placeholder="Jump to page, search recent items, #tags, or type 's <url>' to quick-save…"
+               autocomplete="off" />
+        <kbd class="cmd-palette-kbd">ESC</kbd>
+      </div>
+
+      <div class="cmd-palette-results">
+        <template x-for="(entry, idx) in paletteResults()" :key="entry.id">
+          <button type="button"
+                  class="cmd-palette-item"
+                  :class="{ 'selected': paletteIndex === idx }"
+                  @mouseenter="paletteIndex = idx"
+                  @click="executePaletteEntry(entry)">
+            <div class="cmd-palette-item-left">
+              <span class="cmd-palette-group-badge" x-text="entry.group"></span>
+              <template x-if="entry.kind === 'tag'">
+                <span class="tag-pill" :style="tagStyle(entry.tag)" x-text="entry.title"></span>
+              </template>
+              <template x-if="entry.kind !== 'tag'">
+                <span class="cmd-palette-item-title" x-text="entry.title"></span>
+              </template>
+            </div>
+            <span class="cmd-palette-item-sub" x-text="entry.subtitle"></span>
+          </button>
+        </template>
+        <div x-show="paletteResults().length === 0" class="cmd-palette-empty">
+          No matching pages, clips, or tags. Tip: type <code>s https://example.com</code> to quick-save a URL.
+        </div>
+      </div>
+
+      <div class="cmd-palette-footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> select</span>
+        <span><kbd>s &lt;url&gt;</kbd> quick-save</span>
+        <span><kbd>esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 600ms Inline Hover Preview Floating Panel -->
+  <div x-show="hoverPreview.visible && hoverPreview.item"
+       x-cloak
+       class="hover-preview-panel"
+       :style="'left: ' + hoverPreview.x + 'px; top: ' + hoverPreview.y + 'px;'"
+       role="tooltip">
+    <template x-if="hoverPreview.item && itemHeroImage(hoverPreview.item)">
+      <div class="hover-preview-hero">
+        <img :src="itemHeroImage(hoverPreview.item)" :alt="hoverPreview.item.title || 'Preview image'" />
+      </div>
+    </template>
+    <div class="hover-preview-body">
+      <div class="hover-preview-title" x-text="hoverPreview.item ? (hoverPreview.item.title || hoverPreview.item.url) : ''"></div>
+      <div class="hover-preview-summary" x-text="hoverPreview.item ? (hoverPreview.item.summary || 'Saved in your library archive.') : ''"></div>
     </div>
   </div>
 

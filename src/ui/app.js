@@ -757,6 +757,11 @@ function pageLibrary() {
     ],
 
     async init() {
+      window.addEventListener("clipper-filter-tag", (e) => {
+        if (e.detail && typeof e.detail.tag === "string") {
+          this.selectedTag = e.detail.tag;
+        }
+      });
       await this.loadItems();
     },
 
@@ -1661,6 +1666,252 @@ function clipperShell() {
       this.initRouter();
       this.initKeybindings();
       this.initNetwork();
+      this.loadPaletteCache();
+    },
+
+    // Command Palette (Cmd+K / Ctrl+K)
+    paletteOpen: false,
+    paletteQuery: "",
+    paletteIndex: 0,
+    paletteItems: [],
+
+    // Inline Hover Preview (600ms delay)
+    hoverPreview: {
+      visible: false,
+      item: null,
+      x: 0,
+      y: 0
+    },
+    _hoverTimer: null,
+
+    async loadPaletteCache() {
+      try {
+        const res = await api("/api/items?status=all&limit=50");
+        if (res && Array.isArray(res.items)) {
+          this.paletteItems = res.items;
+        }
+      } catch (e) {
+        this.paletteItems = [...MOCK_DATA.items];
+      }
+    },
+
+    openPalette() {
+      this.paletteOpen = true;
+      this.paletteQuery = "";
+      this.paletteIndex = 0;
+      this.loadPaletteCache();
+      this.$nextTick(() => {
+        const input = document.getElementById("cmdPaletteInput");
+        if (input) input.focus();
+      });
+    },
+
+    closePalette() {
+      this.paletteOpen = false;
+      this.paletteQuery = "";
+    },
+
+    fuzzyMatch(query, target) {
+      if (!query) return true;
+      const q = query.toLowerCase().trim();
+      const t = String(target || "").toLowerCase();
+      if (t.includes(q)) return true;
+      let qi = 0;
+      for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+        if (t[ti] === q[qi]) qi++;
+      }
+      return qi === q.length;
+    },
+
+    paletteResults() {
+      const raw = (this.paletteQuery || "").trim();
+      const results = [];
+
+      // 1. Quick-save input ('s <url>')
+      if (/^s\s+/i.test(raw)) {
+        const urlPart = raw.replace(/^s\s+/i, "").trim();
+        results.push({
+          id: "quicksave",
+          kind: "quicksave",
+          group: "Quick Save",
+          title: urlPart ? `Save URL: ${urlPart}` : "Type a URL after 's ' to quick-save…",
+          subtitle: "POST /api/clips",
+          url: urlPart
+        });
+      }
+
+      const q = raw.replace(/^s\s+/i, "");
+
+      // 2. Pages (Today / Library / Inbox / Ask / Skills / Settings)
+      const pages = [
+        { page: "today", title: "Today", subtitle: "Daily briefing, activity calendar & metrics" },
+        { page: "library", title: "Library", subtitle: "Browse & filter all saved items" },
+        { page: "inbox", title: "Inbox", subtitle: "Triage new saves" },
+        { page: "ask", title: "Ask", subtitle: "Chat with your second brain" },
+        { page: "skills", title: "Skills", subtitle: "Extraction templates & workflows" },
+        { page: "settings", title: "Settings", subtitle: "Soul, memory, providers & pairing" }
+      ];
+      pages.forEach(p => {
+        if (!raw || this.fuzzyMatch(raw, p.title + " " + p.subtitle)) {
+          results.push({
+            id: "page-" + p.page,
+            kind: "page",
+            group: "Pages",
+            title: p.title,
+            subtitle: p.subtitle,
+            page: p.page
+          });
+        }
+      });
+
+      // 3. Recent items (top 8)
+      const sourceItems = (this.paletteItems && this.paletteItems.length > 0) ? this.paletteItems : MOCK_DATA.items;
+      const matchingItems = sourceItems
+        .filter(it => !raw || this.fuzzyMatch(q || raw, `${it.title || ""} ${it.summary || ""} ${it.url || ""} ${(it.tags || []).join(" ")}`))
+        .slice(0, 8);
+      matchingItems.forEach(it => {
+        results.push({
+          id: "item-" + it.id,
+          kind: "item",
+          group: "Recent Items",
+          title: it.title || it.url,
+          subtitle: it.type || "article",
+          item: it
+        });
+      });
+
+      // 4. Tags
+      const tagSet = new Set();
+      sourceItems.forEach(it => (it.tags || []).forEach(t => tagSet.add(t)));
+      Array.from(tagSet)
+        .filter(t => !raw || this.fuzzyMatch(raw.replace(/^#/, ""), t))
+        .slice(0, 12)
+        .forEach(t => {
+          results.push({
+            id: "tag-" + t,
+            kind: "tag",
+            group: "Tags",
+            title: "#" + t,
+            subtitle: "Filter Library by tag",
+            tag: t
+          });
+        });
+
+      return results;
+    },
+
+    movePaletteSelection(delta) {
+      const list = this.paletteResults();
+      if (list.length === 0) {
+        this.paletteIndex = 0;
+        return;
+      }
+      this.paletteIndex = (this.paletteIndex + delta + list.length) % list.length;
+    },
+
+    async executePaletteEntry(entry) {
+      if (!entry) {
+        const list = this.paletteResults();
+        entry = list[this.paletteIndex];
+      }
+      if (!entry) return;
+
+      if (entry.kind === "quicksave") {
+        const url = (entry.url || "").trim();
+        if (!url) {
+          toast("Enter a valid URL after 's '", "danger");
+          return;
+        }
+        const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        this.closePalette();
+        try {
+          await api("/api/clips", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: normalized })
+          });
+          toast(`Quick-saved ${normalized}`, "info");
+          this.loadPaletteCache();
+        } catch (err) {
+          toast(`Quick-save failed: ${err.message}`, "danger");
+        }
+        return;
+      }
+
+      if (entry.kind === "page") {
+        this.closePalette();
+        this.navigate(entry.page);
+        return;
+      }
+
+      if (entry.kind === "item") {
+        this.closePalette();
+        this.openDetail(entry.item);
+        return;
+      }
+
+      if (entry.kind === "tag") {
+        this.closePalette();
+        this.navigate("library");
+        window.dispatchEvent(new CustomEvent("clipper-filter-tag", { detail: { tag: entry.tag } }));
+        toast(`Filtered Library by #${entry.tag}`, "info");
+      }
+    },
+
+    // Hover Preview (600ms dwell)
+    startHoverPreview(item, event) {
+      this.cancelHoverPreview();
+      if (!item) return;
+      const clientX = event ? event.clientX : 200;
+      const clientY = event ? event.clientY : 200;
+      this._hoverTimer = setTimeout(() => {
+        this.updateHoverCoords(clientX, clientY);
+        this.hoverPreview.item = item;
+        this.hoverPreview.visible = true;
+      }, 600);
+    },
+
+    moveHoverPreview(event) {
+      if (!event) return;
+      if (this.hoverPreview.visible) {
+        this.updateHoverCoords(event.clientX, event.clientY);
+      }
+    },
+
+    updateHoverCoords(cx, cy) {
+      const vw = window.innerWidth || 1200;
+      const vh = window.innerHeight || 800;
+      const panelW = 320;
+      const panelH = 180;
+      let x = cx + 16;
+      let y = cy + 16;
+      if (x + panelW > vw - 16) x = Math.max(16, cx - panelW - 12);
+      if (y + panelH > vh - 16) y = Math.max(16, cy - panelH - 12);
+      this.hoverPreview.x = x;
+      this.hoverPreview.y = y;
+    },
+
+    cancelHoverPreview() {
+      if (this._hoverTimer) {
+        clearTimeout(this._hoverTimer);
+        this._hoverTimer = null;
+      }
+      this.hoverPreview.visible = false;
+      this.hoverPreview.item = null;
+    },
+
+    itemHeroImage(item) {
+      if (!item) return null;
+      if (item.hero_image || item.image || item.thumbnail) {
+        return item.hero_image || item.image || item.thumbnail;
+      }
+      if (item.frontmatter && (item.frontmatter.image || item.frontmatter.hero_image)) {
+        return item.frontmatter.image || item.frontmatter.hero_image;
+      }
+      if (item.type === "photo" && item.url && /\.(png|jpe?g|webp|gif|svg)$/i.test(item.url)) {
+        return item.url;
+      }
+      return null;
     },
 
     initNetwork() {
@@ -1678,6 +1929,7 @@ function clipperShell() {
       const validPages = ["today", "library", "inbox", "ask", "skills", "settings"];
 
       const handleRoute = () => {
+        this.cancelHoverPreview();
         const hash = window.location.hash.replace(/^#\/?/, "").toLowerCase().trim();
         if (validPages.includes(hash)) {
           this.currentPage = hash;
@@ -1692,11 +1944,24 @@ function clipperShell() {
 
     initKeybindings() {
       window.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+          e.preventDefault();
+          if (this.paletteOpen) {
+            this.closePalette();
+          } else {
+            this.openPalette();
+          }
+          return;
+        }
+        if (e.key === "Escape" && this.paletteOpen) {
+          e.preventDefault();
+          this.closePalette();
+          return;
+        }
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
         if (e.key === "/") {
           e.preventDefault();
-          const searchInput = document.getElementById("globalSearchInput");
-          if (searchInput) searchInput.focus();
+          this.openPalette();
         }
       });
     },
