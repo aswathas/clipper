@@ -1339,7 +1339,7 @@
         <!-- Related Clips -->
         <div>
           <div class="section-caption" style="margin-bottom: var(--sp-2);">
-            Related (4)
+            <span x-text="getRelatedItems(activeDetailItem).length > 0 ? 'Related (' + getRelatedItems(activeDetailItem).length + ')' : 'Related'"></span>
           </div>
           <div class="slideover-related-grid">
             <template x-for="rel in getRelatedItems(activeDetailItem)" :key="rel.id">

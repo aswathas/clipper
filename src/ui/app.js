@@ -1641,6 +1641,7 @@ function clipperShell() {
     unreadInboxCount: 3,
     userMoodText: "reading: 3, learning: 11, idle: 2",
     activeDetailItem: null,
+    detailRelated: [],
     detailChatOpen: false,
     detailChatMessages: [],
     detailChatInput: "",
@@ -1662,6 +1663,15 @@ function clipperShell() {
           }
         } catch (err) {
           console.warn("Could not fetch full item body:", err);
+        }
+      }
+      // Fetch related items (tag-siblings) for the slideover connections panel.
+      if (item && item.id) {
+        try {
+          const rel = await api(`/api/items/${encodeURIComponent(item.id)}/related`);
+          if (rel && Array.isArray(rel.related)) this.detailRelated = rel.related;
+        } catch (err) {
+          this.detailRelated = [];
         }
       }
     },
@@ -1733,10 +1743,7 @@ function clipperShell() {
     },
 
     getRelatedItems(item) {
-      if (!item) return [];
-      return MOCK_DATA.items
-        .filter(i => i.id !== item.id)
-        .slice(0, 4);
+      return this.detailRelated || [];
     },
 
     sendDetailChat() {
