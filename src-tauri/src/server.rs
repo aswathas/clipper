@@ -67,6 +67,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
+        .route("/api/concepts", get(get_concepts))
+        .route("/api/items/{id}/related", get(get_related))
         .route("/api/today", get(today))
         .route("/api/stats", get(stats))
         // phone pairing
@@ -588,4 +590,63 @@ async fn set_muse_state(State(state): State<AppState>, Json(body): Json<MuseStat
     let payload = json!({ "state": new_state, "updated_at": clock::now_iso8601(), "activity": [] });
     std::fs::write(&path, serde_json::to_string_pretty(&payload).map_err(ApiError::internal)?).map_err(ApiError::internal)?;
     Ok(Json(payload))
+}
+
+async fn get_concepts(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let concepts = with_db(&state, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT je.value AS tag, COUNT(*) AS n
+             FROM items, json_each(items.tags) AS je
+             GROUP BY je.value
+             ORDER BY n DESC
+             LIMIT 200"
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let tag: String = r.get(0)?;
+            let n: i64 = r.get(1)?;
+            Ok(json!({ "tag": tag, "count": n }))
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })?;
+    Ok(Json(json!({ "concepts": concepts, "total": concepts.len() })))
+}
+
+async fn get_related(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let item = match with_db(&state, |conn| db::get(conn, &id))? {
+        Some(it) => it,
+        None => return Err(ApiError::new(StatusCode::NOT_FOUND, "no such item")),
+    };
+    let tags: Vec<String> = item.tags.clone();
+    let related = if tags.is_empty() {
+        Vec::new()
+    } else {
+        with_db(&state, |conn| {
+            let placeholders = std::iter::repeat("?").take(tags.len()).collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT DISTINCT items.id, items.title, items.url, items.saved_at, items.summary
+                 FROM items, json_each(items.tags) AS je
+                 WHERE je.value IN ({placeholders}) AND items.id != ?
+                 ORDER BY items.saved_at DESC
+                 LIMIT 12"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let mut params: Vec<&dyn rusqlite::ToSql> = tags.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+            let id_ref = id.clone();
+            params.push(&id_ref as &dyn rusqlite::ToSql);
+            let rows = stmt.query_map(&*params, |r| {
+                Ok(json!({
+                    "id": r.get::<_, String>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "url": r.get::<_, String>(2)?,
+                    "saved_at": r.get::<_, i64>(3)?,
+                    "summary": r.get::<_, String>(4)?,
+                }))
+            })?.collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })?
+    };
+    Ok(Json(json!({ "tags": tags, "related": related, "total": related.len() })))
 }
