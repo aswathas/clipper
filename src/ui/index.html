@@ -1171,10 +1171,10 @@
         <!-- Tag Pills with click to remove and +add -->
         <div class="slideover-tags-row">
           <template x-for="tag in (activeDetailItem ? activeDetailItem.tags || [] : [])" :key="tag">
-            <span class="slideover-tag-pill" @click="removeDetailTag(tag)" :title="'Click to remove #' + tag">
+            <button type="button" class="slideover-tag-pill" @click="removeDetailTag(tag)" :title="'Click to remove #' + tag">
               <span x-text="'#' + tag"></span>
               <span class="remove-tag">×</span>
-            </span>
+            </button>
           </template>
           <button type="button" class="slideover-tag-add-btn" @click="addDetailTag()">+ add tag</button>
         </div>
