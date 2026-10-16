@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle,
+    webview::WebviewWindowBuilder,
+    AppHandle, Manager, WebviewUrl,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -137,6 +138,50 @@ fn open_in_browser(url: &str) {
     }
 }
 
+fn toggle_muse_window(app: &AppHandle, want_visible: bool) {
+    if let Some(win) = app.get_webview_window("muse") {
+        if want_visible {
+            let _ = win.show();
+            let _ = win.set_focus();
+        } else {
+            let _ = win.hide();
+        }
+        return;
+    }
+    // Create the floating widget for the first time.
+    if !want_visible {
+        return;
+    }
+    // Bottom-right anchor on the primary monitor.
+    let (anchor_x, anchor_y) = primary_monitor_work_area(app)
+        .map(|r| (r.0 + r.2 - 252.0, r.1 + r.3 - 84.0))
+        .unwrap_or((100.0, 100.0));
+    let url = WebviewUrl::App("muse.html".into());
+    let res = WebviewWindowBuilder::new(app, "muse", url)
+        .title("Clipper Muse")
+        .inner_size(240.0, 72.0)
+        .position(anchor_x, anchor_y)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .transparent(true)
+        .build();
+    match res {
+        Ok(_w) => println!("Clipper: muse window created"),
+        Err(e) => eprintln!("Clipper: could not create muse window: {e}"),
+    }
+}
+
+fn primary_monitor_work_area(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    let mon = app.primary_monitor().ok().flatten()?;
+    let pos = mon.position();
+    let size = mon.size();
+    let scale = mon.scale_factor();
+    Some((pos.x as f64 / scale, pos.y as f64 / scale, size.width as f64 / scale, size.height as f64 / scale))
+}
+
 /// The screenshot hotkey handler: clipboard image -> staging PNG -> queue.
 fn on_capture_image(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     let Some((width, height, bytes)) = screenshot::clipboard_image() else {
@@ -194,11 +239,13 @@ pub fn run() {
             let lan_ip = pairing::lan_ip();
             println!("Clipper: phone pairing on http://{lan_ip}:{port}/pair (token is in the QR)");
 
-            // ---- system tray: Show dashboard / Show QR / Quit ----
+            // ---- system tray: Show dashboard / Show QR / Show muse / Hide muse / Quit ----
             let show_i = MenuItem::with_id(app, "show", "Show dashboard", true, None::<&str>)?;
             let qr_i = MenuItem::with_id(app, "qr", "Show QR", true, None::<&str>)?;
+            let muse_show_i = MenuItem::with_id(app, "muse_show", "Show muse", true, None::<&str>)?;
+            let muse_hide_i = MenuItem::with_id(app, "muse_hide", "Hide muse", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &qr_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &qr_i, &muse_show_i, &muse_hide_i, &quit_i])?;
 
             let tray_port = port;
             LIVE_PORT.store(tray_port, std::sync::atomic::Ordering::SeqCst);
@@ -208,6 +255,8 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => open_in_browser(&dashboard_url(tray_port)),
                     "qr" => open_in_browser(&format!("http://127.0.0.1:{tray_port}/qr")),
+                    "muse_show" => toggle_muse_window(app, true),
+                    "muse_hide" => toggle_muse_window(app, false),
                     "quit" => {
                         println!("tray: Quit");
                         app.exit(0);
