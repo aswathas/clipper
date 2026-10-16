@@ -15,10 +15,11 @@
   --surface-2: #F4F1EB;
   --ink: #1C1816;
   --ink-2: #3A332E;
-  --mute: #6B6660;
-  --mute-2: #9A948C;
+  --mute: #5C5752;
+  --mute-2: #6E6862;
   --hairline: #E8E4DC;
   --accent: #B45309;
+  --accent-2: #7A3504;
   --accent-soft: #FEF3E2;
   --accent-contrast: #FFFFFF;
   --danger: #B91C1C;
@@ -842,8 +843,8 @@ button {
 }
 
 .filter-chip.active {
-  background-color: var(--accent-soft);
-  color: var(--accent);
+  background-color: var(--accent);
+  color: var(--accent-contrast);
   border-color: var(--accent);
   font-weight: 600;
 }
@@ -1302,7 +1303,7 @@ button {
   border: 1px dashed var(--hairline);
   border-radius: var(--r-md);
   font-size: var(--fs-xs);
-  color: var(--mute);
+  color: var(--ink-2);
   cursor: pointer;
 }
 
@@ -1990,7 +1991,7 @@ button {
 
 /* Accessible Focus Rings */
 :focus-visible {
-  outline: 2px solid var(--accent) !important;
+  outline: 2px solid var(--accent-2) !important;
   outline-offset: 2px !important;
 }
 
