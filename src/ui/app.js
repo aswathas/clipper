@@ -69,42 +69,42 @@ const TYPE_CONFIG = {
   article: {
     label: "Article",
     colorVar: "var(--type-article)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path><line x1="8" y1="7" x2="16" y2="7"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Article" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path><line x1="8" y1="7" x2="16" y2="7"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>`
   },
   video: {
     label: "Video",
     colorVar: "var(--type-video)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="15" height="16" rx="2"></rect><polygon points="22 8 17 12 22 16 22 8"></polygon></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="15" height="16" rx="2"></rect><polygon points="22 8 17 12 22 16 22 8"></polygon></svg>`
   },
   book: {
     label: "Book",
     colorVar: "var(--type-book)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`
   },
   repo: {
     label: "Repo",
     colorVar: "var(--type-repo)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Repo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg>`
   },
   "code-error": {
     label: "Code Error",
     colorVar: "var(--type-code-error)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Code Error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
   },
   photo: {
     label: "Photo",
     colorVar: "var(--type-photo)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Photo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`
   },
   event: {
     label: "Event",
     colorVar: "var(--type-event)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Event" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`
   },
   paper: {
     label: "Paper",
     colorVar: "var(--type-paper)",
-    svg: `<svg class="type-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`
+    svg: `<svg class="type-glyph" role="img" aria-label="Paper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`
   }
 };
 
@@ -116,8 +116,7 @@ function getTypeMeta(type) {
 function renderTypeBadge(type, withLabel = true) {
   const meta = getTypeMeta(type);
   const labelHtml = withLabel ? `<span class="type-badge-label">${meta.label}</span>` : "";
-  const svg = meta.svg.replace('<svg ', `<svg role="img" aria-label="${meta.label}" `);
-  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${svg}${labelHtml}</span>`;
+  return `<span class="type-badge type-${type}" style="color: ${meta.colorVar};">${meta.svg}${labelHtml}</span>`;
 }
 
 /* ============================================================================
