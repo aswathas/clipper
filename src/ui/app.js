@@ -1403,6 +1403,59 @@ function pageSkills() {
   };
 }
 
+function pageMuse() {
+  return {
+    title: "Muse",
+    subtitle: "A silent note-taker for what you're working on.",
+    museState: "off",
+    activity: [],
+    busy: false,
+    statusText: "Off — Muse is not watching.",
+
+    async init() {
+      try {
+        const res = await api("/api/muse/state");
+        this.museState = res.state || "off";
+        this.activity = res.activity || [];
+        this.statusText = this.computeStatus();
+      } catch (e) {
+        this.statusText = "Could not reach Muse backend.";
+      }
+    },
+
+    computeStatus() {
+      if (this.museState === "watching") return "Watching — Muse is taking notes on your active window.";
+      if (this.museState === "paused") return "Paused — watching will resume at your next toggle.";
+      return "Off — Muse is not watching.";
+    },
+
+    async toggleWatching() {
+      this.busy = true;
+      try {
+        const next = this.museState === "watching" ? "off" : "watching";
+        const res = await api("/api/muse/state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: next })
+        });
+        this.museState = res.state || next;
+        this.statusText = this.computeStatus();
+        toast(this.museState === "watching" ? "Muse watching" : "Muse paused", "info");
+      } catch (e) {
+        toast("Muse error: " + e.message, "danger");
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    formatTime(ts) {
+      if (!ts) return "";
+      const d = typeof ts === "number" && ts < 1e12 ? new Date(ts * 1000) : new Date(ts);
+      return d.toLocaleString();
+    }
+  };
+}
+
 function pageSettings() {
   return {
     title: "Settings",
@@ -1699,6 +1752,8 @@ function clipperShell() {
     },
 
     isOffline: false,
+    museState: "off", // 'off' | 'watching' | 'paused'
+    museActivity: [],
 
     init() {
       ThemeManager.init();
@@ -1965,7 +2020,7 @@ function clipperShell() {
     },
 
     initRouter() {
-      const validPages = ["today", "library", "inbox", "ask", "skills", "settings"];
+      const validPages = ["today", "library", "inbox", "ask", "skills", "muse", "settings"];
 
       const handleRoute = () => {
         this.cancelHoverPreview();

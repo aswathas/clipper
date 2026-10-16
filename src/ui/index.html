@@ -100,6 +100,21 @@
             <span>Skills</span>
           </a>
 
+          <a href="#/muse" class="rail-nav-link" :class="{ 'active': currentPage === 'muse' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3"></circle>
+              <circle cx="5" cy="6" r="2"></circle>
+              <circle cx="19" cy="6" r="2"></circle>
+              <circle cx="5" cy="18" r="2"></circle>
+              <circle cx="19" cy="18" r="2"></circle>
+              <line x1="7" y1="6" x2="10" y2="11"></line>
+              <line x1="17" y1="6" x2="14" y2="11"></line>
+              <line x1="7" y1="18" x2="10" y2="13"></line>
+              <line x1="17" y1="18" x2="14" y2="13"></line>
+            </svg>
+            <span>Muse</span>
+            <span class="nav-badge" x-show="museState === 'watching'" style="background-color: var(--accent);" aria-label="Muse watching">●</span>
+          </a>
           <a href="#/settings" class="rail-nav-link" :class="{ 'active': currentPage === 'settings' }">
             <svg class="rail-nav-icon" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="3"></circle>
@@ -914,6 +929,56 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Muse Page (v0.5 scaffold) -->
+        <section x-show="currentPage === 'muse'" x-data="pageMuse()">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h1 class="top-bar-title" x-text="title"></h2>
+              <p class="top-bar-desc" x-text="subtitle"></p>
+            </div>
+            <div class="top-bar-actions">
+              <button type="button" class="btn btn-secondary btn-sm" @click="toggleWatching()" :disabled="busy">
+                <span x-show="museState !== 'watching'">Start watching</span>
+                <span x-show="museState === 'watching'">Stop</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="today-section">
+            <div class="section-caption">Status</div>
+            <div style="display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);">
+              <span :style="museState === 'watching' ? 'width: 12px; height: 12px; border-radius: 50%; background: var(--accent); display: inline-block;' : 'width: 12px; height: 12px; border-radius: 50%; background: var(--mute-2); display: inline-block;'"></span>
+              <span style="font-size: var(--fs-md); color: var(--ink);" x-text="statusText"></span>
+            </div>
+          </div>
+
+          <div class="today-section">
+            <div class="section-caption">Recent Activity</div>
+            <div x-show="activity.length === 0" class="empty-state">
+              <h3 class="empty-state-title">No activity yet</h3>
+              <p class="empty-state-desc">When Muse is watching, it will note what you're working on without sending your screen anywhere.</p>
+            </div>
+            <div x-show="activity.length > 0" style="display: flex; flex-direction: column; gap: var(--sp-2);">
+              <template x-for="(entry, i) in activity" :key="i">
+                <div class="activity-row" style="padding: var(--sp-3); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);">
+                  <div style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="formatTime(entry.ts)"></div>
+                  <div style="font-size: var(--fs-sm); color: var(--ink); font-weight: 500; margin-top: 2px;" x-text="entry.window_title"></div>
+                  <div style="font-size: var(--fs-sm); color: var(--mute); margin-top: 4px;" x-text="entry.summary"></div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div class="today-section">
+            <div class="section-caption">What's coming</div>
+            <div style="padding: var(--sp-4); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--mute); line-height: 1.6;">
+              <p style="margin: 0 0 var(--sp-2) 0;"><strong style="color: var(--ink);">v0.5:</strong> dashboard scaffold for Muse. Activity log endpoint live at <code>/api/activity</code>.</p>
+              <p style="margin: 0 0 var(--sp-2) 0;"><strong style="color: var(--ink);">v0.6:</strong> Win32 foreground hook + screenshot → Claude summarize → auto-append to today's <code>Activity/&lt;date&gt;.md</code>.</p>
+              <p style="margin: 0;"><strong style="color: var(--ink);">v0.7:</strong> Floating transparent widget on top of Windows; red-dot indicator when watching; <code>Ctrl+.</code> kill switch.</p>
             </div>
           </div>
         </section>

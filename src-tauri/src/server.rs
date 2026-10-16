@@ -66,6 +66,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/items/{id}/tags", post(set_tags))
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
+        .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
         .route("/api/today", get(today))
         .route("/api/stats", get(stats))
         // phone pairing
@@ -557,4 +558,34 @@ fn static_string(content_type: &'static str, body: String) -> Response {
         .header(header::CONTENT_TYPE, content_type)
         .body(Body::from(body))
         .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
+fn muse_state_path(state: &AppState) -> std::path::PathBuf {
+    state.cfg.memory_dir().parent().map(|p| p.join("muse_state.json")).unwrap_or_else(|| std::path::PathBuf::from("muse_state.json"))
+}
+
+async fn get_muse_state(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let path = muse_state_path(&state);
+    let value: Value = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| json!({ "state": "off", "activity": [] })),
+        Err(_) => json!({ "state": "off", "activity": [] }),
+    };
+    Ok(Json(value))
+}
+
+#[derive(Debug, Deserialize)]
+struct MuseStateBody {
+    state: String,
+}
+
+async fn set_muse_state(State(state): State<AppState>, Json(body): Json<MuseStateBody>) -> Result<Json<Value>, ApiError> {
+    let new_state = match body.state.as_str() {
+        "off" | "watching" | "paused" => body.state,
+        _ => return Err(ApiError::new(StatusCode::BAD_REQUEST, "state must be off|watching|paused")),
+    };
+    let path = muse_state_path(&state);
+    if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+    let payload = json!({ "state": new_state, "updated_at": clock::now_iso8601(), "activity": [] });
+    std::fs::write(&path, serde_json::to_string_pretty(&payload).map_err(ApiError::internal)?).map_err(ApiError::internal)?;
+    Ok(Json(payload))
 }
