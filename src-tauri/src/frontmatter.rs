@@ -17,19 +17,42 @@ impl Frontmatter {
         self.fields.get(key).map(String::as_str)
     }
 
+    pub fn fields(&self) -> &BTreeMap<String, String> {
+        &self.fields
+    }
+
     pub fn tags(&self) -> Vec<String> {
         self.get("tags").map(parse_inline_list).unwrap_or_default()
     }
 }
 
+/// Split a note into `(raw_frontmatter, body)` if a `---` block is at the top.
+pub fn split(text: &str) -> (Option<&str>, &str) {
+    let Some(rest) = text.strip_prefix("---") else {
+        return (None, text);
+    };
+    let Some(rest) = rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+    else {
+        return (None, text);
+    };
+    let Some(end) = rest.find("\n---") else {
+        return (None, text);
+    };
+    let block = &rest[..end];
+    let after = &rest[end + 4..];
+    let body = after
+        .strip_prefix("\r\n")
+        .or_else(|| after.strip_prefix('\n'))
+        .unwrap_or(after);
+    (Some(block), body)
+}
+
 /// Parse the `---` delimited block at the top of a note, if there is one.
 pub fn parse(text: &str) -> Option<Frontmatter> {
-    let rest = text.strip_prefix("---")?;
-    let rest = rest
-        .strip_prefix("\r\n")
-        .or_else(|| rest.strip_prefix('\n'))?;
-    let end = rest.find("\n---")?;
-    let block = &rest[..end];
+    let (block, _) = split(text);
+    let block = block?;
 
     let mut fields = BTreeMap::new();
     for line in block.lines() {

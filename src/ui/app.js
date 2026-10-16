@@ -365,6 +365,22 @@ function mockApiHandler(path, opts = {}) {
     }
   }
 
+  if (method === "GET") {
+    const itemMatch = path.match(/^\/api\/items\/([^/?#]+)$/);
+    if (itemMatch) {
+      const id = itemMatch[1];
+      const item = MOCK_DATA.items.find(i => i.id === id);
+      if (item) {
+        return {
+          ...item,
+          content: item.content || `# ${item.title}\n\n${item.summary}\n\nSaved from ${item.url}.`,
+          body_md: item.content || `# ${item.title}\n\n${item.summary}\n\nSaved from ${item.url}.`,
+          frontmatter: { title: item.title, url: item.url, type: item.type, tags: (item.tags || []).join(", ") }
+        };
+      }
+    }
+  }
+
   if (path.startsWith("/api/today") || path.startsWith("/api/items")) {
     return { items: [...MOCK_DATA.items] };
   }
@@ -1337,7 +1353,7 @@ function clipperShell() {
     detailChatMessages: [],
     detailChatInput: "",
 
-    openDetail(item) {
+    async openDetail(item) {
       this.activeDetailItem = item;
       this.detailChatOpen = false;
       this.detailChatMessages = [
@@ -1346,6 +1362,16 @@ function clipperShell() {
           text: `Ask me anything about "${item.title}". I can synthesize concepts, extract code snippets, or compare it with other clips in your archive.`
         }
       ];
+      if (item && item.id && !item.content) {
+        try {
+          const full = await api(`/api/items/${encodeURIComponent(item.id)}`);
+          if (full && this.activeDetailItem && this.activeDetailItem.id === item.id) {
+            this.activeDetailItem = { ...item, ...full };
+          }
+        } catch (err) {
+          console.warn("Could not fetch full item body:", err);
+        }
+      }
     },
 
     closeDetail() {

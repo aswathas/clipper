@@ -248,10 +248,53 @@ async fn get_item(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    match with_db(&state, |conn| db::get(conn, &id))? {
-        Some(item) => Ok(Json(json!(item))),
-        None => Err(ApiError::new(StatusCode::NOT_FOUND, "no such item")),
+    let Some(item) = with_db(&state, |conn| db::get(conn, &id))? else {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "no such item"));
+    };
+
+    let mut val = serde_json::to_value(&item).map_err(ApiError::internal)?;
+    if let Some(obj) = val.as_object_mut() {
+        let raw_file = item.vault_path.as_deref().and_then(|vp| {
+            let p = std::path::Path::new(vp);
+            if p.is_absolute() {
+                std::fs::read_to_string(p).ok()
+            } else {
+                std::fs::read_to_string(p)
+                    .or_else(|_| std::fs::read_to_string(state.cfg.vault_path().join(p)))
+                    .ok()
+            }
+        });
+
+        match raw_file {
+            Some(text) => {
+                let (raw_fm, body) = crate::frontmatter::split(&text);
+                let fm_map = crate::frontmatter::parse(&text)
+                    .map(|fm| json!(fm.fields()))
+                    .unwrap_or(Value::Null);
+                let body_trimmed = body.trim().to_string();
+                let content_str = if body_trimmed.is_empty() {
+                    text.clone()
+                } else {
+                    body_trimmed
+                };
+                obj.insert("content".into(), Value::String(content_str.clone()));
+                obj.insert("body_md".into(), Value::String(content_str));
+                obj.insert(
+                    "raw_frontmatter".into(),
+                    raw_fm.map(|s| Value::String(s.to_string())).unwrap_or(Value::Null),
+                );
+                obj.insert("frontmatter".into(), fm_map);
+            }
+            None => {
+                obj.insert("content".into(), Value::Null);
+                obj.insert("body_md".into(), Value::Null);
+                obj.insert("raw_frontmatter".into(), Value::Null);
+                obj.insert("frontmatter".into(), Value::Null);
+            }
+        }
     }
+
+    Ok(Json(val))
 }
 
 #[derive(Debug, Deserialize)]
