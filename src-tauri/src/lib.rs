@@ -24,6 +24,7 @@ pub mod config;
 pub mod db;
 pub mod drainer;
 pub mod events;
+pub mod musewatch;
 pub mod frontmatter;
 pub mod memory;
 pub mod pairing;
@@ -330,6 +331,9 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 indexer.watch().await;
             });
+
+            // ---- Muse watcher: poll foreground window, summarize with claude-cli ----
+            musewatch::spawn(cfg.clone());
 
             // ---- self-improvement: recompute at startup, then daily ----
             tauri::async_runtime::spawn(routes_self::nightly(Arc::clone(&index_db)));
