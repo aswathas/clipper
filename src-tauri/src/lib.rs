@@ -52,6 +52,8 @@ use vault::Detected;
 const CAPTURE_HOTKEY: &str = "Ctrl+Shift+C";
 /// Global capture hotkey for clipboard images.
 const SCREENSHOT_HOTKEY: &str = "Ctrl+Shift+X";
+/// Global pause/resume hotkey for the Muse watcher.
+const MUSE_TOGGLE_HOTKEY: &str = "Ctrl+Shift+M";
 /// Tray icon id, used to look the tray up for notifications.
 const TRAY_ID: &str = "clipper";
 /// The port the API actually bound. Tray handlers and the single-instance
@@ -183,6 +185,35 @@ fn primary_monitor_work_area(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
     Some((pos.x as f64 / scale, pos.y as f64 / scale, size.width as f64 / scale, size.height as f64 / scale))
 }
 
+/// Toggle the Muse watcher state (`watching` ↔ `off`) and write the change to
+/// `muse_state.json`. Triggered by the global `Ctrl+Shift+M` hotkey.
+fn toggle_muse_state(cfg: &Config) {
+    let path = cfg
+        .memory_dir()
+        .parent()
+        .map(|p| p.join("muse_state.json"))
+        .unwrap_or_else(|| std::path::PathBuf::from("muse_state.json"));
+    let current = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("state").and_then(|s| s.as_str().map(|x| x.to_string())))
+        .unwrap_or_else(|| "off".to_string());
+    let next = if current == "watching" { "off" } else { "watching" };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let payload = serde_json::json!({
+        "state": next,
+        "updated_at": clock::now_iso8601(),
+        "activity": []
+    });
+    if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_default()) {
+        eprintln!("Clipper: muse hotkey write failed: {e}");
+        return;
+    }
+    println!("Clipper: muse {} (via Ctrl+Shift+M)", next);
+}
+
 /// The screenshot hotkey handler: clipboard image -> staging PNG -> queue.
 fn on_capture_image(app: &AppHandle, cfg: &Config, lock: &Mutex<()>) {
     let Some((width, height, bytes)) = screenshot::clipboard_image() else {
@@ -293,6 +324,15 @@ pub fn run() {
                 .on_shortcut(SCREENSHOT_HOTKEY, move |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         on_capture_image(app, &image_cfg, &image_lock);
+                    }
+                })?;
+
+            // Ctrl+Shift+M: pause/resume the Muse watcher from any focus.
+            let muse_cfg = cfg.clone();
+            app.global_shortcut()
+                .on_shortcut(MUSE_TOGGLE_HOTKEY, move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        toggle_muse_state(&muse_cfg);
                     }
                 })?;
 
