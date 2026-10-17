@@ -966,6 +966,31 @@
               </select>
               <button type="button" class="btn btn-secondary btn-sm" @click="toggleSort()" x-text="sortNewestFirst ? 'Newest first ↓' : 'Oldest first ↑'" :title="sortNewestFirst ? 'Currently newest first; click for oldest first' : 'Currently oldest first; click for newest first'"></button>
               <button type="button" class="btn btn-secondary btn-sm" @click="loadDigest()" :disabled="digestBusy" x-text="digest ? 'Refresh digest' : 'Daily digest'"></button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="toggleSettings()" x-text="settingsOpen ? 'Close settings' : 'Settings'"></button>
+            </div>
+            <div x-show="settingsOpen" style="margin-top: var(--sp-3); padding: var(--sp-4); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);">
+              <div style="font-size: var(--fs-sm); color: var(--ink); font-weight: 500; margin-bottom: var(--sp-2);">Muse settings</div>
+              <label style="display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--ink); margin: 6px 0;">
+                <input type="checkbox" x-model="cfgDraft.smart_dedup" />
+                Smart dedup (group same-task switches into one entry)
+              </label>
+              <label style="display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--ink); margin: 6px 0;">
+                <input type="checkbox" x-model="cfgDraft.screenshots" />
+                Capture screenshot of the foreground window on each entry
+              </label>
+              <label style="display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--ink); margin: 6px 0;">
+                Debounce (seconds):
+                <input type="number" min="0" max="600" x-model.number="cfgDraft.debounce_secs" style="width: 80px; padding: 2px 6px; background: var(--bg); color: var(--ink); border: 1px solid var(--hairline); border-radius: var(--r-sm);" />
+              </label>
+              <label style="display: block; font-size: var(--fs-sm); color: var(--ink); margin: 6px 0;">
+                Skip processes (comma-separated, case-insensitive, no .exe):
+                <input type="text" x-model="cfgDraft.skipCsv" placeholder="zoom, whatsapp, slack" style="width: 100%; padding: 4px 8px; margin-top: 4px; background: var(--bg); color: var(--ink); border: 1px solid var(--hairline); border-radius: var(--r-sm);" />
+              </label>
+              <div style="display: flex; gap: var(--sp-2); margin-top: var(--sp-3);">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveSettings()" :disabled="cfgSaving" x-text="cfgSaving ? 'Saving…' : 'Save'"></button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadConfig()">Reload</button>
+                <span x-show="cfgSaved" style="font-size: var(--fs-xs); color: var(--accent); margin-left: var(--sp-2); align-self: center;">Saved.</span>
+              </div>
             </div>
             <div x-show="activity.length === 0" class="empty-state">
               <h3 class="empty-state-title">No activity yet</h3>

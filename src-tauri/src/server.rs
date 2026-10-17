@@ -71,6 +71,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/muse/activity", get(get_muse_activity))
         .route("/api/muse/heatmap", get(get_muse_heatmap))
         .route("/api/muse/digest", get(get_muse_digest))
+        .route("/api/muse/config", get(get_muse_config).post(set_muse_config))
         .route("/api/concepts", get(get_concepts))
         .route("/api/items/{id}/related", get(get_related))
         .route("/api/today", get(today))
@@ -706,6 +707,49 @@ fn run_claude_silent(prompt: &str) -> String {
     }
     let _ = child.wait();
     out.lines().next().unwrap_or("").trim().to_string()
+}
+
+/// Read the current Muse configuration. The dashboard uses this to populate
+/// the settings popover; the values mirror the `[muse]` section in `config.toml`.
+async fn get_muse_config(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    Ok(Json(serde_json::to_value(&state.cfg.muse).map_err(ApiError::internal)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct MuseConfigBody {
+    skip_processes: Option<Vec<String>>,
+    smart_dedup: Option<bool>,
+    debounce_secs: Option<u32>,
+    screenshots: Option<bool>,
+}
+
+/// Update one or more Muse settings. Persists to `config.toml`. The in-memory
+/// config is not reloaded (the watcher reads from disk on its next 5s tick,
+/// and the next process restart picks up the change too).
+async fn set_muse_config(
+    State(state): State<AppState>,
+    Json(body): Json<MuseConfigBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut cfg = state.cfg.clone();
+    if let Some(v) = body.skip_processes {
+        cfg.muse.skip_processes = v;
+    }
+    if let Some(v) = body.smart_dedup {
+        cfg.muse.smart_dedup = v;
+    }
+    if let Some(v) = body.debounce_secs {
+        cfg.muse.debounce_secs = v;
+    }
+    if let Some(v) = body.screenshots {
+        cfg.muse.screenshots = v;
+    }
+    let path = crate::config::config_path();
+    let toml_str = toml::to_string_pretty(&cfg).map_err(ApiError::internal)?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, toml_str).map_err(ApiError::internal)?;
+    Ok(Json(serde_json::to_value(&cfg.muse).map_err(ApiError::internal)?))
 }
 
 /// Summarize the day's activity log via `claude -p` for the end-of-day digest.
