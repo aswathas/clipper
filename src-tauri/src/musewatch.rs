@@ -28,7 +28,7 @@ use crate::config::Config;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const POLL_INTERVAL_SECS: u64 = 5;
-const DEBOUNCE_TICKS: u32 = 2; // 10s of stable title before summarize
+const DEFAULT_DEBOUNCE_TICKS: u32 = 2; // 10s of stable title before summarize
 
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
@@ -46,11 +46,40 @@ pub fn stop() {
 fn run_loop(cfg: Config) {
     let activity_dir = cfg.vault_path().join("Activity");
     let _ = fs::create_dir_all(&activity_dir);
+    // Ticks required to consider a title stable. If the user set a custom
+    // debounce in config, honor it; otherwise fall back to 2 ticks (10s).
+    let debounce_ticks = if cfg.muse.debounce_secs == 0 {
+        0
+    } else {
+        (cfg.muse.debounce_secs / POLL_INTERVAL_SECS as u32).max(1)
+    };
+    let skip_processes: Vec<String> = cfg
+        .muse
+        .skip_processes
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
     let mut last_signature: Option<String> = None;
     let mut stable_ticks: u32 = 0;
+    let mut last_recorded: Option<(String, String)> = None; // (process, normalized_title)
     while !STOP_FLAG.load(Ordering::SeqCst) {
         if read_state(&cfg) == "watching" {
             if let Some((title, process)) = read_foreground() {
+                // Skip empty/blank process (would render as **** in markdown).
+                let proc_lower = process.to_lowercase();
+                if proc_lower.is_empty() {
+                    last_signature = None;
+                    stable_ticks = 0;
+                    thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
+                    continue;
+                }
+                // Skip configured processes (zoom, whatsapp, slack, ...).
+                if skip_processes.iter().any(|p| p == &proc_lower) {
+                    last_signature = Some(format!("__skip__{process}"));
+                    stable_ticks = 0;
+                    thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
+                    continue;
+                }
                 let signature = format!("{process}|{title}");
                 if last_signature.as_deref() == Some(&signature) {
                     stable_ticks = stable_ticks.saturating_add(1);
@@ -58,10 +87,26 @@ fn run_loop(cfg: Config) {
                     stable_ticks = 0;
                     last_signature = Some(signature);
                 }
-                if stable_ticks == DEBOUNCE_TICKS {
+                if stable_ticks == debounce_ticks {
+                    // Smart dedup: if the last recorded entry is the same
+                    // (process, normalized_title), don't re-record — just
+                    // keep the same line. The on-disk log still ends up
+                    // with one entry per task, not one per alt-tab.
+                    let normalized = normalize_title(&title, &process);
+                    if cfg.muse.smart_dedup {
+                        if let Some((ref lp, ref lt)) = last_recorded {
+                            if lp == &process && lt == &normalized {
+                                last_recorded = Some((process.clone(), normalized));
+                                stable_ticks = 0;
+                                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
+                                continue;
+                            }
+                        }
+                    }
                     let summary = summarize(&title, &process);
                     if !summary.is_empty() && !summary.eq_ignore_ascii_case("skip") {
                         append_entry(&activity_dir, &title, &process, &summary);
+                        last_recorded = Some((process.clone(), normalized));
                     }
                 }
             } else {
@@ -74,6 +119,20 @@ fn run_loop(cfg: Config) {
         }
         thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
     }
+}
+
+/// Strip protocol noise (the leading "GitHub - " / "- YouTube" / "— Brave" etc.)
+/// so we treat the same task as one entry even when the title's exact wording
+/// shifts (e.g. "User/repo: PR review #1" vs "User/repo: PR review #2").
+fn normalize_title(title: &str, _process: &str) -> String {
+    let mut s = title.to_string();
+    // Drop common trailing browser suffixes.
+    for suffix in [" - Brave", " - Chrome", " - Edge", " - Firefox", " - YouTube"] {
+        if let Some(stripped) = s.strip_suffix(suffix) {
+            s = stripped.to_string();
+        }
+    }
+    s.trim().to_string()
 }
 
 fn read_state(cfg: &Config) -> String {

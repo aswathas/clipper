@@ -5,6 +5,7 @@
 //! `/api/...` fetches stay same-origin.
 
 use std::sync::{Arc, Mutex, RwLock};
+use std::process::Command;
 
 use axum::{
     body::Body,
@@ -68,6 +69,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
         .route("/api/muse/activity", get(get_muse_activity))
+        .route("/api/muse/heatmap", get(get_muse_heatmap))
+        .route("/api/muse/digest", get(get_muse_digest))
         .route("/api/concepts", get(get_concepts))
         .route("/api/items/{id}/related", get(get_related))
         .route("/api/today", get(today))
@@ -597,6 +600,135 @@ async fn get_muse_activity(
     let limit = q.limit.unwrap_or(200);
     let entries = read_recent_activity(&state, date.clone(), limit);
     Ok(Json(json!({ "date": date, "activity": entries })))
+}
+
+/// Counts the activity entries per day for the last `days` days, for the calendar
+/// heatmap on the Muse page. The list is sorted oldest-first.
+async fn get_muse_heatmap(
+    State(state): State<AppState>,
+    Query(q): Query<HeatmapQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let days = q.days.unwrap_or(365).clamp(7, 730);
+    let activity_dir = state.cfg.vault_path().join("Activity");
+    let today = clock::today_yyyy_mm_dd();
+    let mut cells: Vec<Value> = Vec::with_capacity(days);
+    for i in (0..days).rev() {
+        let d = shift_date(&today, -(i as i64));
+        let path = activity_dir.join(format!("{d}.md"));
+        let count = std::fs::read_to_string(&path)
+            .map(|t| t.lines().filter(|l| l.starts_with("- `")).count())
+            .unwrap_or(0);
+        cells.push(json!({ "date": d, "count": count }));
+    }
+    Ok(Json(json!({ "today": today, "days": days, "cells": cells })))
+}
+
+#[derive(Debug, Deserialize)]
+struct HeatmapQuery {
+    days: Option<usize>,
+}
+
+fn shift_date(yyyy_mm_dd: &str, delta_days: i64) -> String {
+    // Tiny Gregorian date shift, mirrors format_ymd in musewatch.rs but in
+    // reverse: parse the date, walk by `delta_days` days, reformat.
+    let parts: Vec<&str> = yyyy_mm_dd.split('-').collect();
+    if parts.len() != 3 {
+        return yyyy_mm_dd.to_string();
+    }
+    let y: i64 = parts[0].parse().unwrap_or(1970);
+    let m: i64 = parts[1].parse().unwrap_or(1);
+    let d: i64 = parts[2].parse().unwrap_or(1);
+    let days_from_epoch = |year: i64, month: i64, day: i64| -> i64 {
+        let mut total = 0i64;
+        for yy in 1970..year {
+            total += if is_leap(yy) { 366 } else { 365 };
+        }
+        let mdays = [31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        for mm in 1..month {
+            total += mdays[(mm - 1) as usize];
+        }
+        total + (day - 1)
+    };
+    let epoch_day = days_from_epoch(y, m, d);
+    let target = epoch_day + delta_days;
+    // Convert epoch day back to Y-M-D.
+    let mut year = 1970i64;
+    let mut remaining = target;
+    loop {
+        let dy = if is_leap(year) { 366 } else { 365 };
+        if remaining < dy {
+            break;
+        }
+        remaining -= dy;
+        year += 1;
+    }
+    let mdays = [31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1i64;
+    while month <= 12 && remaining >= mdays[(month - 1) as usize] {
+        remaining -= mdays[(month - 1) as usize];
+        month += 1;
+    }
+    let day = remaining + 1;
+    format!("{:04}-{:02}-{:02}", year, month, day)
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+#[derive(Debug, Deserialize)]
+struct DigestQuery {
+    date: Option<String>,
+}
+
+/// Shell out to `claude -p` with the given prompt, capture the first line of
+/// stdout, and suppress the console window. Used by the daily-digest endpoint.
+fn run_claude_silent(prompt: &str) -> String {
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p")
+        .arg(prompt)
+        .arg("--output-format")
+        .arg("text")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let Ok(mut child) = cmd.spawn() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    if let Some(mut s) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut s, &mut out);
+    }
+    let _ = child.wait();
+    out.lines().next().unwrap_or("").trim().to_string()
+}
+
+/// Summarize the day's activity log via `claude -p` for the end-of-day digest.
+/// Returns a single string with a 2-3 sentence overview.
+async fn get_muse_digest(
+    State(state): State<AppState>,
+    Query(q): Query<DigestQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let date = q.date.unwrap_or_else(clock::today_yyyy_mm_dd);
+    let path = state.cfg.vault_path().join("Activity").join(format!("{date}.md"));
+    let body = std::fs::read_to_string(&path).unwrap_or_default();
+    if body.trim().is_empty() {
+        return Ok(Json(json!({ "date": date, "summary": "No activity logged.", "entries": 0 })));
+    }
+    let entries = body.lines().filter(|l| l.starts_with("- `")).count();
+    let prompt = format!(
+        "Below is a chronological log of foreground windows the user switched to today. \
+         Reply with a 2-3 sentence summary of what they worked on, grouping by task rather \
+         than by window. Be specific. If the log is mostly noise (calls, social apps), say so.\n\n{}",
+        body
+    );
+    let summary = run_claude_silent(&prompt);
+    Ok(Json(json!({ "date": date, "summary": summary, "entries": entries })))
 }
 
 /// Read the last `limit` lines of the requested day's activity markdown and
