@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 use std::process::Command;
+use std::collections::HashMap;
 
 use axum::{
     body::Body,
@@ -18,6 +19,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use rusqlite::params;
 
 use crate::{clock, config::Config, db, pairing, queue};
 
@@ -68,6 +70,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/items/{id}/backlinks", get(get_backlinks))
         .route("/api/zettelkasten/rebuild", post(rebuild_zettelkasten))
         .route("/api/whatsapp/import", post(whatsapp_import_handler))
+        .route("/api/daily-stream", get(get_daily_stream))
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
@@ -1013,4 +1016,166 @@ async fn whatsapp_import_handler(
         "days": outcome.days,
         "skipped": outcome.skipped,
     })))
+}
+
+/// Merge Activity + WhatsApp + Calls + Clips into a single chronological
+/// stream for a given day. Returns `[{ time, kind, summary, ref }]`,
+/// sorted by time ascending. `date` defaults to today.
+async fn get_daily_stream(
+    State(state): State<AppState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let date = q
+        .get("date")
+        .cloned()
+        .unwrap_or_else(crate::clock::today_yyyy_mm_dd);
+    let vault = state.cfg.vault_path();
+    let mut entries: Vec<Value> = Vec::new();
+
+    // 1) Muse activity
+    let act = vault.join("Activity").join(format!("{date}.md"));
+    if let Ok(body) = std::fs::read_to_string(&act) {
+        for line in body.lines() {
+            if let Some(rest) = line.strip_prefix("- `") {
+                if let Some(ts_end) = rest.find('`') {
+                    let time = rest[..ts_end].to_string();
+                    let tail = &rest[ts_end + 1..];
+                    entries.push(json!({
+                        "time": time,
+                        "kind": "activity",
+                        "summary": tail.trim(),
+                        "ref": null,
+                    }));
+                }
+            }
+        }
+    }
+
+    // 2) WhatsApp
+    let wa = vault.join("WhatsApp").join(format!("{date}.md"));
+    if let Ok(body) = std::fs::read_to_string(&wa) {
+        let mut current_time: Option<String> = None;
+        let mut current_text = String::new();
+        for line in body.lines() {
+            if let Some(rest) = line.strip_prefix("## ") {
+                if !current_text.is_empty() {
+                    if let Some(t) = current_time.take() {
+                        entries.push(json!({
+                            "time": t.split_whitespace().next().unwrap_or("00:00").to_string(),
+                            "kind": "whatsapp",
+                            "summary": current_text.trim().to_string(),
+                            "ref": null,
+                        }));
+                    }
+                    current_text.clear();
+                }
+                current_time = Some(rest.to_string());
+            } else if let Some(t) = line.strip_prefix("> ") {
+                current_text.push_str(t);
+                current_text.push('\n');
+            }
+        }
+        if !current_text.is_empty() {
+            if let Some(t) = current_time.take() {
+                entries.push(json!({
+                    "time": t.split_whitespace().next().unwrap_or("00:00").to_string(),
+                    "kind": "whatsapp",
+                    "summary": current_text.trim().to_string(),
+                    "ref": null,
+                }));
+            }
+        }
+    }
+
+    // 3) Calls
+    let calls = vault.join("Calls").join(format!("{date}.md"));
+    if let Ok(body) = std::fs::read_to_string(&calls) {
+        let mut current_time: Option<String> = None;
+        let mut current_text = String::new();
+        for line in body.lines() {
+            if let Some(rest) = line.strip_prefix("## ") {
+                if !current_text.is_empty() {
+                    if let Some(t) = current_time.take() {
+                        entries.push(json!({
+                            "time": t.split_whitespace().next().unwrap_or("00:00").to_string(),
+                            "kind": "call",
+                            "summary": current_text.trim().to_string(),
+                            "ref": null,
+                        }));
+                    }
+                    current_text.clear();
+                }
+                current_time = Some(rest.to_string());
+            } else if !line.is_empty() && !line.starts_with("_") {
+                current_text.push_str(line);
+                current_text.push('\n');
+            }
+        }
+        if !current_text.is_empty() {
+            if let Some(t) = current_time.take() {
+                entries.push(json!({
+                    "time": t.split_whitespace().next().unwrap_or("00:00").to_string(),
+                    "kind": "call",
+                    "summary": current_text.trim().to_string(),
+                    "ref": null,
+                }));
+            }
+        }
+    }
+
+    // 4) Clips saved (SQLite, items.saved_at in [00:00, 24:00) of date)
+    let (start, end) = date_range(&date);
+    let items = with_db(&state, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, title, summary, url, saved_at FROM items
+             WHERE saved_at >= ?1 AND saved_at < ?2
+             ORDER BY saved_at ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![start, end], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })?;
+    for (id, title, summary, url, saved_at) in items {
+        let time = unix_to_hhmm(saved_at);
+        entries.push(json!({
+            "time": time,
+            "kind": "clip",
+            "summary": title.or(summary).unwrap_or_else(|| id.clone()),
+            "ref": { "id": id, "url": url },
+        }));
+    }
+
+    entries.sort_by(|a, b| {
+        let ta = a.get("time").and_then(|v| v.as_str()).unwrap_or("00:00");
+        let tb = b.get("time").and_then(|v| v.as_str()).unwrap_or("00:00");
+        ta.cmp(tb)
+    });
+    Ok(Json(json!({ "date": date, "count": entries.len(), "entries": entries })))
+}
+
+fn date_range(date: &str) -> (i64, i64) {
+    use time::Date;
+    let d = Date::parse(
+        &format!("{date}"),
+        &time::format_description::parse("[year]-[month]-[day]").unwrap(),
+    )
+    .unwrap_or_else(|_| time::OffsetDateTime::now_utc().date());
+    let start = (d.with_hms(0, 0, 0).unwrap().assume_utc().unix_timestamp()) - 19800; // IST offset
+    let end = start + 24 * 60 * 60;
+    (start, end)
+}
+
+fn unix_to_hhmm(ts: i64) -> String {
+    use time::OffsetDateTime;
+    let t = OffsetDateTime::from_unix_timestamp(ts).unwrap_or_else(|_| OffsetDateTime::now_utc());
+    format!("{:02}:{:02}", t.hour(), t.minute())
 }
