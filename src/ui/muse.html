@@ -6,8 +6,9 @@
   <title>Clipper Muse</title>
   <link rel="stylesheet" href="muse.css">
 </head>
-<body x-data="museWidget()">
-  <div class="muse-card" :class="museState === 'watching' ? 'watching' : ''">
+<body x-data="museWidget()" :class="expanded ? 'expanded' : 'collapsed'">
+  <!-- Collapsed pill — 240x72, always visible, shows the mascot + status. -->
+  <div class="muse-card" :class="museState === 'watching' ? 'watching' : ''" @click="expand()" x-show="!expanded" style="cursor: pointer;">
     <div class="muse-mascot" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5">
         <circle cx="12" cy="12" r="3"></circle>
@@ -25,10 +26,71 @@
       <div class="muse-title">Muse</div>
       <div class="muse-status" x-text="statusText"></div>
     </div>
-    <button type="button" class="muse-toggle" :class="museState === 'watching' ? 'on' : ''" @click="toggle()" :aria-pressed="museState === 'watching'" :title="museState === 'watching' ? 'Stop watching' : 'Start watching'">
+    <button type="button" class="muse-toggle" :class="museState === 'watching' ? 'on' : ''" @click.stop="toggle()" :aria-pressed="museState === 'watching'" :title="museState === 'watching' ? 'Stop watching' : 'Start watching'">
       <span x-text="museState === 'watching' ? '■' : '▶'"></span>
     </button>
   </div>
+
+  <!-- Expanded popover — 320x440. Shows recent activity, settings, close. -->
+  <div class="muse-popover" x-show="expanded" @click.outside="collapse()" x-cloak>
+    <div class="muse-popover-head">
+      <div class="muse-mascot small" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"></circle>
+          <circle cx="5" cy="6" r="2"></circle>
+          <circle cx="19" cy="6" r="2"></circle>
+          <circle cx="5" cy="18" r="2"></circle>
+          <circle cx="19" cy="18" r="2"></circle>
+        </svg>
+      </div>
+      <div class="muse-popover-title">Muse</div>
+      <button type="button" class="muse-popover-close" @click="collapse()" aria-label="Close">×</button>
+    </div>
+
+    <div class="muse-popover-section">
+      <div class="muse-popover-status">
+        <span class="dot" :class="museState"></span>
+        <span x-text="statusText"></span>
+      </div>
+      <button type="button" class="btn" @click="toggle()">
+        <span x-text="museState === 'watching' ? 'Pause' : 'Start watching'"></span>
+      </button>
+    </div>
+
+    <div class="muse-popover-section">
+      <div class="muse-popover-label">Recent activity</div>
+      <div class="muse-popover-list">
+        <template x-for="(e, i) in recentActivity" :key="i">
+          <div class="muse-popover-item">
+            <span class="ts" x-text="e.ts"></span>
+            <span class="title" x-text="e.window_title"></span>
+          </div>
+        </template>
+        <div x-show="recentActivity.length === 0" class="muse-popover-empty">No activity yet.</div>
+      </div>
+    </div>
+
+    <div class="muse-popover-section">
+      <div class="muse-popover-label">Quick settings</div>
+      <label class="muse-popover-row">
+        <span>Smart dedup</span>
+        <input type="checkbox" x-model="cfg.smart_dedup" @change="saveCfg()" />
+      </label>
+      <label class="muse-popover-row">
+        <span>Screenshots</span>
+        <input type="checkbox" x-model="cfg.screenshots" @change="saveCfg()" />
+      </label>
+      <label class="muse-popover-row">
+        <span>Open dashboard</span>
+        <button type="button" class="btn-link" @click="openDashboard()">↗</button>
+      </label>
+    </div>
+
+    <div class="muse-popover-foot">
+      <span class="muse-popover-hint">Ctrl+Shift+M to toggle from anywhere</span>
+    </div>
+  </div>
+
   <script src="muse.js"></script>
 </body>
 </html>
