@@ -26,6 +26,7 @@ pub mod drainer;
 pub mod events;
 pub mod musehook;
 pub mod musewatch;
+pub mod whatsapp;
 pub mod frontmatter;
 pub mod memory;
 pub mod pairing;
@@ -379,6 +380,14 @@ pub fn run() {
             // 1s PowerShell poll as a safety net for windows the hook misses.
             let hook_rx = musehook::spawn();
             musewatch::spawn_with_hook(cfg.clone(), hook_rx);
+
+            // ---- WhatsApp clipboard monitor (skipped when disabled in [muse]) ----
+            // Path comes from CLIPPER_VAULT env or, as a fallback, the same
+            // resolved path the watcher uses.
+            unsafe {
+                std::env::set_var("CLIPPER_VAULT", &cfg.vault_path());
+            }
+            whatsapp::spawn(cfg.muse.capture_whatsapp, cfg.vault_path());
 
             // ---- self-improvement: recompute at startup, then daily ----
             tauri::async_runtime::spawn(routes_self::nightly(Arc::clone(&index_db)));
