@@ -67,6 +67,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/items/{id}/tags", post(set_tags))
         .route("/api/items/{id}/backlinks", get(get_backlinks))
         .route("/api/zettelkasten/rebuild", post(rebuild_zettelkasten))
+        .route("/api/whatsapp/import", post(whatsapp_import_handler))
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
@@ -989,4 +990,27 @@ async fn rebuild_zettelkasten(
     let vault = state.cfg.vault_path();
     let count = with_db(&state, |conn| crate::links::rebuild_index(conn, &vault))?;
     Ok(Json(json!({ "indexed": count, "path": vault.join("Zettelkasten.md").display().to_string() })))
+}
+
+/// Bulk-import a WhatsApp "Export chat" text file. Body: `{ "path": "..." }`.
+async fn whatsapp_import_handler(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let path_str = body
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "missing 'path'"))?;
+    let path = std::path::PathBuf::from(path_str);
+    if !path.is_file() {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "file not found"));
+    }
+    let vault = state.cfg.vault_path();
+    let outcome = crate::whatsapp_import::import_file(&path, &vault)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({
+        "messages": outcome.messages,
+        "days": outcome.days,
+        "skipped": outcome.skipped,
+    })))
 }
