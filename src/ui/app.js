@@ -1038,6 +1038,49 @@ function pageInbox() {
   };
 }
 
+function pageStream() {
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    entries: [],
+    loading: false,
+    async init() {
+      await this.load();
+    },
+    async load() {
+      this.loading = true;
+      try {
+        const r = await api(`/api/daily-stream?date=${encodeURIComponent(this.date)}`);
+        this.entries = (r && r.entries) || [];
+      } catch (e) {
+        this.entries = [];
+        toast(`Daily stream failed: ${e.message}`, "danger");
+      } finally {
+        this.loading = false;
+      }
+    },
+    async setDate(d) {
+      this.date = d;
+      await this.load();
+    },
+    kindColor(kind) {
+      return ({
+        activity: "var(--accent)",
+        whatsapp: "#25D366",
+        call: "#3B82F6",
+        clip: "var(--ink)",
+      })[kind] || "var(--mute)";
+    },
+    kindLabel(kind) {
+      return ({
+        activity: "Muse",
+        whatsapp: "WhatsApp",
+        call: "Call",
+        clip: "Clip",
+      })[kind] || kind;
+    },
+  };
+}
+
 function pageAsk() {
   return {
     title: "Ask your brain",
@@ -2175,7 +2218,7 @@ function clipperShell() {
     },
 
     initRouter() {
-      const validPages = ["today", "library", "inbox", "ask", "skills", "muse", "settings"];
+      const validPages = ["today", "library", "inbox", "ask", "stream", "skills", "muse", "settings"];
 
       const handleRoute = () => {
         this.cancelHoverPreview();

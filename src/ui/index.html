@@ -93,6 +93,14 @@
             <span>Ask</span>
           </a>
 
+          <a href="#/stream" class="rail-nav-link" :class="{ 'active': currentPage === 'stream' }">
+            <svg class="rail-nav-icon" viewBox="0 0 24 24">
+              <path d="M2 12h6l2-7 4 14 2-7h6"></path>
+            </svg>
+            <span>Stream</span>
+            <span class="nav-badge" x-show="(streamEntries || []).length > 0" x-text="(streamEntries || []).length"></span>
+          </a>
+
           <a href="#/skills" class="rail-nav-link" :class="{ 'active': currentPage === 'skills' }">
             <svg class="rail-nav-icon" viewBox="0 0 24 24">
               <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
@@ -806,6 +814,31 @@
         </section>
 
         <!-- Skills Page (DESIGN.md Section 7) -->
+        <section x-show="currentPage === 'stream'" x-data="pageStream()">
+          <div class="top-bar">
+            <div class="top-bar-titles">
+              <h1 class="top-bar-title">Daily Stream</h1>
+              <p class="top-bar-subtitle" x-text="`${entries.length} events on ${date}`"></p>
+            </div>
+            <div class="top-bar-actions">
+              <input type="date" :value="date" @change="setDate($event.target.value)" style="font-family: var(--font-body);" />
+              <button type="button" class="btn btn-secondary btn-sm" @click="load()">Refresh</button>
+            </div>
+          </div>
+          <div class="stream-list" style="display: flex; flex-direction: column; gap: var(--sp-2); max-width: 800px;">
+            <template x-for="e in entries" :key="e.time + e.kind + e.summary">
+              <div class="stream-row" style="display: grid; grid-template-columns: 80px 100px 1fr; gap: var(--sp-3); padding: var(--sp-3); background-color: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); align-items: start;">
+                <span style="font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--mute);" x-text="e.time"></span>
+                <span :style="`font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; color: ${kindColor(e.kind)}; padding: 2px 6px; border-radius: 4px; background-color: color-mix(in srgb, ${kindColor(e.kind)} 12%, transparent);`" x-text="kindLabel(e.kind)"></span>
+                <span style="font-size: var(--fs-sm); color: var(--ink); line-height: 1.5;" x-text="e.summary"></span>
+              </div>
+            </template>
+            <template x-if="!loading && entries.length === 0">
+              <div style="padding: var(--sp-4); text-align: center; color: var(--mute);">No events on this day.</div>
+            </template>
+          </div>
+        </section>
+
         <section x-show="currentPage === 'skills'" x-data="pageSkills()">
           <div class="top-bar">
             <div class="top-bar-titles">
