@@ -76,7 +76,12 @@ impl Indexer {
 
         let conn = self.db.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         db::upsert(&conn, &item).map_err(std::io::Error::other)?;
+        let n = crate::links::backfill_related_section(&conn, &id, path)
+            .map_err(std::io::Error::other)?;
         drop(conn);
+        if n > 0 {
+            println!("vaultwatch: {} added {} backlink(s)", id, n);
+        }
 
         // Feed the self-improvement stream: every note that lands is an event.
         crate::events::hub().emit(
