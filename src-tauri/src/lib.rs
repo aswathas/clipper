@@ -18,6 +18,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+pub mod audiocapture;
 pub mod capture;
 pub mod clock;
 pub mod config;
@@ -388,6 +389,14 @@ pub fn run() {
                 std::env::set_var("CLIPPER_VAULT", &cfg.vault_path());
             }
             whatsapp::spawn(cfg.muse.capture_whatsapp, cfg.vault_path());
+
+            // ---- Audio capture worker (skipped when disabled in [muse]) ----
+            // Always spawned; the worker only records when a calls_processes
+            // process is foregrounded AND cfg.muse.record_calls is true.
+            if cfg.muse.record_calls {
+                let _audio = audiocapture::start_capture(cfg.clone());
+                // Detached; lives until process exit. Drop on shutdown.
+            }
 
             // ---- self-improvement: recompute at startup, then daily ----
             tauri::async_runtime::spawn(routes_self::nightly(Arc::clone(&index_db)));
