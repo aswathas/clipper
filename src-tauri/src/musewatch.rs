@@ -189,50 +189,14 @@ fn append_entry(activity_dir: &Path, title: &str, process: &str, summary: &str) 
 }
 
 fn current_date() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    format_ymd(secs)
+    let now = time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    format!("{:04}-{:02}-{:02}", now.year(), now.month() as u8, now.day())
 }
 
 fn current_time_hhmm() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let s = (secs % 86400) as u32;
-    let hh = s / 3600;
-    let mm = (s % 3600) / 60;
-    format!("{hh:02}:{mm:02}")
+    let now = time::OffsetDateTime::now_local()
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    format!("{:02}:{:02}", now.hour(), now.minute())
 }
 
-fn format_ymd(epoch: i64) -> String {
-    // Days since 1970-01-01 → year/month/day (Gregorian, UTC). Tiny implementation.
-    let days = (epoch / 86400) as i64;
-    let mut y = 1970i64;
-    let mut d = days;
-    loop {
-        let dy = if is_leap(y) { 366 } else { 365 };
-        if d < dy {
-            break;
-        }
-        d -= dy;
-        y += 1;
-    }
-    let mdays = [31, if is_leap(y) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut m = 0usize;
-    while m < 12 && d >= mdays[m] {
-        d -= mdays[m];
-        m += 1;
-    }
-    format!("{:04}-{:02}-{:02}", y, m + 1, d + 1)
-}
-
-fn is_leap(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
-}
-
-pub fn _unused_to_silence_warnings(_arc: Arc<()>) {}

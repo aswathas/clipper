@@ -957,19 +957,30 @@
           </div>
 
           <div class="today-section">
-            <div class="section-caption">Recent Activity</div>
+            <div class="section-caption" style="display: flex; align-items: center; gap: var(--sp-3);">
+              <span>Recent Activity</span>
+              <select x-model="selectedDate" @change="loadActivity()" style="font-size: var(--fs-xs); padding: 2px 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: var(--r-sm);">
+                <template x-for="d in dateOptions" :key="d.value">
+                  <option :value="d.value" x-text="d.label"></option>
+                </template>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" @click="toggleSort()" x-text="sortNewestFirst ? 'Newest first ↓' : 'Oldest first ↑'" :title="sortNewestFirst ? 'Currently newest first; click for oldest first' : 'Currently oldest first; click for newest first'"></button>
+            </div>
             <div x-show="activity.length === 0" class="empty-state">
               <h3 class="empty-state-title">No activity yet</h3>
-              <p class="empty-state-desc">When Muse is watching, it will note what you're working on without sending your screen anywhere.</p>
+              <p class="empty-state-desc">When Muse is watching, it will note what you're working on without sending your screen anywhere. Use the date picker above to browse older days.</p>
             </div>
             <div x-show="activity.length > 0" style="display: flex; flex-direction: column; gap: var(--sp-2);">
-              <template x-for="(entry, i) in activity" :key="i">
+              <template x-for="(entry, i) in sortedActivity" :key="i">
                 <div class="activity-row" style="padding: var(--sp-3); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);">
                   <div style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="formatTime(entry.ts)"></div>
                   <div style="font-size: var(--fs-sm); color: var(--ink); font-weight: 500; margin-top: 2px;" x-text="entry.window_title"></div>
                   <div style="font-size: var(--fs-sm); color: var(--mute); margin-top: 4px;" x-text="entry.summary"></div>
                 </div>
               </template>
+            </div>
+            <div x-show="activity.length > 0" style="margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--mute-2);">
+              Widget on top of Windows: tray icon → <strong>Show muse</strong>. To hide: <strong>Hide muse</strong>.
             </div>
           </div>
 

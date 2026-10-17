@@ -1409,18 +1409,53 @@ function pageMuse() {
     subtitle: "A silent note-taker for what you're working on.",
     museState: "off",
     activity: [],
+    selectedDate: "",
+    sortNewestFirst: true,
     busy: false,
     statusText: "Off — Muse is not watching.",
 
+    get dateOptions() {
+      const opts = [];
+      const today = new Date();
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const label = i === 0 ? `Today (${value})` : i === 1 ? `Yesterday (${value})` : value;
+        opts.push({ value, label });
+      }
+      return opts;
+    },
+
+    get sortedActivity() {
+      // The server already returns newest-first, so just reverse when the user
+      // wants oldest-first. No per-entry re-sort needed.
+      return this.sortNewestFirst ? this.activity : [...this.activity].reverse();
+    },
+
     async init() {
+      this.selectedDate = this.dateOptions[0].value;
+      await this.loadActivity();
       try {
         const res = await api("/api/muse/state");
         this.museState = res.state || "off";
-        this.activity = res.activity || [];
         this.statusText = this.computeStatus();
       } catch (e) {
         this.statusText = "Could not reach Muse backend.";
       }
+    },
+
+    async loadActivity() {
+      try {
+        const res = await api(`/api/muse/activity?date=${encodeURIComponent(this.selectedDate)}&limit=200`);
+        this.activity = res.activity || [];
+      } catch (e) {
+        this.activity = [];
+      }
+    },
+
+    toggleSort() {
+      this.sortNewestFirst = !this.sortNewestFirst;
     },
 
     computeStatus() {

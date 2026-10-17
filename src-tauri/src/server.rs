@@ -67,6 +67,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
+        .route("/api/muse/activity", get(get_muse_activity))
         .route("/api/concepts", get(get_concepts))
         .route("/api/items/{id}/related", get(get_related))
         .route("/api/today", get(today))
@@ -575,31 +576,45 @@ async fn get_muse_state(State(state): State<AppState>) -> Result<Json<Value>, Ap
     // The watcher appends to <vault>/Activity/<YYYY-MM-DD>.md, not to muse_state.json,
     // so on every read we also surface the last N entries from today's file. This is
     // what the dashboard's "Recent Activity" panel renders.
-    let recent = read_recent_activity(&state, 30);
+    let recent = read_recent_activity(&state, clock::today_yyyy_mm_dd(), 30);
     if let Some(obj) = value.as_object_mut() {
         obj.insert("activity".to_string(), json!(recent));
     }
     Ok(Json(value))
 }
 
-/// Read the last `limit` lines of today's activity markdown and parse them into
-/// `{ts, process, window_title, summary}` objects. Lines look like:
+#[derive(Debug, Deserialize)]
+struct ActivityQuery {
+    date: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn get_muse_activity(
+    State(state): State<AppState>,
+    Query(q): Query<ActivityQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let date = q.date.unwrap_or_else(clock::today_yyyy_mm_dd);
+    let limit = q.limit.unwrap_or(200);
+    let entries = read_recent_activity(&state, date.clone(), limit);
+    Ok(Json(json!({ "date": date, "activity": entries })))
+}
+
+/// Read the last `limit` lines of the requested day's activity markdown and
+/// parse them into `{ts, process, window_title, summary}` objects, newest first.
+/// Lines look like:
 ///   - `14:58` **Brave** — GitHub — clipper/aswathas — likely drafting launch post.
-fn read_recent_activity(state: &AppState, limit: usize) -> Vec<Value> {
+fn read_recent_activity(state: &AppState, date: String, limit: usize) -> Vec<Value> {
     let activity_dir = state.cfg.vault_path().join("Activity");
-    let today = clock::today_yyyy_mm_dd();
-    let path = activity_dir.join(format!("{today}.md"));
+    let path = activity_dir.join(format!("{date}.md"));
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Vec::new();
     };
+    let day = date;
     text.lines()
         .rev()
         .filter(|l| l.starts_with("- `"))
         .take(limit)
-        .filter_map(|line| parse_activity_line(line, &today))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
+        .filter_map(|line| parse_activity_line(line, &day))
         .collect()
 }
 
@@ -627,8 +642,9 @@ fn parse_activity_line(line: &str, today: &str) -> Option<Value> {
     let mut parts = rest.splitn(2, " — ");
     let title = parts.next().unwrap_or("").trim().to_string();
     let summary = parts.next().unwrap_or("").trim().to_string();
-    // Build an ISO-ish timestamp: today + T + hhmm + :00Z so `new Date(ts)` parses.
-    let ts = format!("{today}T{hhmm}:00Z");
+    // The watcher's HH:MM is the user's local clock; emit a naive ISO stamp
+    // (no Z) so `new Date(ts)` parses it as browser-local time, not UTC.
+    let ts = format!("{today}T{hhmm}:00");
     Some(json!({
         "ts": ts,
         "process": process,
