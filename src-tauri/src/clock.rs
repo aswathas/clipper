@@ -25,3 +25,12 @@ pub fn file_stamp() -> String {
     let minute = iso.get(14..16).unwrap_or("00");
     format!("{date}_{hour}{minute}")
 }
+
+/// `YYYY-MM-DD` (UTC) — the date stamp the muse watcher uses for its
+/// `<vault>/Activity/<date>.md` filename.
+pub fn today_yyyy_mm_dd() -> String {
+    now_iso8601()
+        .get(0..10)
+        .unwrap_or("0000-00-00")
+        .to_string()
+}

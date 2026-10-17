@@ -568,11 +568,73 @@ fn muse_state_path(state: &AppState) -> std::path::PathBuf {
 
 async fn get_muse_state(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let path = muse_state_path(&state);
-    let value: Value = match std::fs::read_to_string(&path) {
+    let mut value: Value = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| json!({ "state": "off", "activity": [] })),
         Err(_) => json!({ "state": "off", "activity": [] }),
     };
+    // The watcher appends to <vault>/Activity/<YYYY-MM-DD>.md, not to muse_state.json,
+    // so on every read we also surface the last N entries from today's file. This is
+    // what the dashboard's "Recent Activity" panel renders.
+    let recent = read_recent_activity(&state, 30);
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("activity".to_string(), json!(recent));
+    }
     Ok(Json(value))
+}
+
+/// Read the last `limit` lines of today's activity markdown and parse them into
+/// `{ts, process, window_title, summary}` objects. Lines look like:
+///   - `14:58` **Brave** — GitHub — clipper/aswathas — likely drafting launch post.
+fn read_recent_activity(state: &AppState, limit: usize) -> Vec<Value> {
+    let activity_dir = state.cfg.vault_path().join("Activity");
+    let today = clock::today_yyyy_mm_dd();
+    let path = activity_dir.join(format!("{today}.md"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .rev()
+        .filter(|l| l.starts_with("- `"))
+        .take(limit)
+        .filter_map(|line| parse_activity_line(line, &today))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+fn parse_activity_line(line: &str, today: &str) -> Option<Value> {
+    // Skip the leading "- `" and find the closing backtick that ends the timestamp.
+    let rest = line.strip_prefix("- `")?;
+    let end = rest.find('`')?;
+    let hhmm = &rest[..end];
+    let after_ts = rest[end + 1..].trim_start();
+    // after_ts: **process** — title — summary. The process may be empty, which
+    // renders as `****`; strip one `**` and look for the next pair.
+    let (process, rest) = if let Some(after) = after_ts.strip_prefix("**") {
+        if let Some(end) = after.find("**") {
+            (after[..end].to_string(), after[end + 2..].trim_start())
+        } else {
+            // Empty process (****): skip four asterisks and the separator.
+            let stripped = after.trim_start_matches('*').trim_start();
+            (String::new(), stripped)
+        }
+    } else {
+        (String::new(), after_ts)
+    };
+    // `rest` starts with " — "; drop that, then split on the next " — " into title/summary.
+    let rest = rest.strip_prefix("—").unwrap_or(rest).trim_start();
+    let mut parts = rest.splitn(2, " — ");
+    let title = parts.next().unwrap_or("").trim().to_string();
+    let summary = parts.next().unwrap_or("").trim().to_string();
+    // Build an ISO-ish timestamp: today + T + hhmm + :00Z so `new Date(ts)` parses.
+    let ts = format!("{today}T{hhmm}:00Z");
+    Some(json!({
+        "ts": ts,
+        "process": process,
+        "window_title": title,
+        "summary": summary,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
