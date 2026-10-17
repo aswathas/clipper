@@ -74,6 +74,42 @@ pub struct Config {
     pub prompts: PromptsCfg,
     pub skills: SkillsCfg,
     pub memory: MemoryCfg,
+    pub muse: MuseCfg,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MuseCfg {
+    /// Process names (case-insensitive, without `.exe`) that the Muse watcher
+    /// should skip without summarizing — e.g. `["zoom", "whatsapp", "slack"]`.
+    pub skip_processes: Vec<String>,
+    /// Whether to group consecutive activity entries for the same `(process, normalized_title)`.
+    pub smart_dedup: bool,
+    /// How long the same task must stay stable before we record a new entry.
+    /// `0` = react on every foreground change; otherwise seconds.
+    pub debounce_secs: u32,
+    /// Capture a screenshot of the foreground HWND and include it in the
+    /// `claude -p` prompt for richer summaries. Disabled by default; needs
+    /// `claude` to accept image attachments via stdin.
+    pub screenshots: bool,
+}
+
+impl Default for MuseCfg {
+    fn default() -> Self {
+        Self {
+            skip_processes: vec![
+                "lockapp".into(),
+                "screensaver".into(),
+                "zoom".into(),
+                "whatsapp".into(),
+                "slack".into(),
+                "telegram".into(),
+            ],
+            smart_dedup: true,
+            debounce_secs: 10,
+            screenshots: false,
+        }
+    }
 }
 
 impl Default for Config {
@@ -86,6 +122,7 @@ impl Default for Config {
             prompts: PromptsCfg::default(),
             skills: SkillsCfg::default(),
             memory: MemoryCfg::default(),
+            muse: MuseCfg::default(),
         }
     }
 }

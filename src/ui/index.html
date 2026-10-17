@@ -965,6 +965,7 @@
                 </template>
               </select>
               <button type="button" class="btn btn-secondary btn-sm" @click="toggleSort()" x-text="sortNewestFirst ? 'Newest first ↓' : 'Oldest first ↑'" :title="sortNewestFirst ? 'Currently newest first; click for oldest first' : 'Currently oldest first; click for newest first'"></button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="loadDigest()" :disabled="digestBusy" x-text="digest ? 'Refresh digest' : 'Daily digest'"></button>
             </div>
             <div x-show="activity.length === 0" class="empty-state">
               <h3 class="empty-state-title">No activity yet</h3>
@@ -980,8 +981,20 @@
               </template>
             </div>
             <div x-show="activity.length > 0" style="margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--mute-2);">
-              Widget on top of Windows: tray icon → <strong>Show muse</strong>. To hide: <strong>Hide muse</strong>.
+              Widget on top of Windows: tray icon → <strong>Show muse</strong>. To hide: <strong>Hide muse</strong>. Global hotkey: <strong>Ctrl+Shift+M</strong>.
             </div>
+            <div x-show="digest" style="margin-top: var(--sp-3); padding: var(--sp-3); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);">
+              <div style="font-size: var(--fs-xs); color: var(--mute-2); margin-bottom: 4px;" x-text="'Daily digest — ' + selectedDate"></div>
+              <div style="font-size: var(--fs-sm); color: var(--ink); line-height: 1.5;" x-text="digest"></div>
+            </div>
+          </div>
+
+          <div class="today-section">
+            <div class="section-caption" style="display: flex; align-items: center; gap: var(--sp-3);">
+              <span>Activity Heatmap</span>
+              <span style="font-size: var(--fs-xs); color: var(--mute-2);" x-text="heatmapSubtitle"></span>
+            </div>
+            <div x-html="renderHeatmap()" style="overflow-x: auto; padding: var(--sp-3); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);"></div>
           </div>
 
           <div class="today-section">

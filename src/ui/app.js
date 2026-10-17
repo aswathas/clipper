@@ -1409,6 +1409,10 @@ function pageMuse() {
     subtitle: "A silent note-taker for what you're working on.",
     museState: "off",
     activity: [],
+    heatmap: [],
+    heatmapSubtitle: "last 365 days",
+    digest: "",
+    digestBusy: false,
     selectedDate: "",
     sortNewestFirst: true,
     busy: false,
@@ -1435,7 +1439,7 @@ function pageMuse() {
 
     async init() {
       this.selectedDate = this.dateOptions[0].value;
-      await this.loadActivity();
+      await Promise.all([this.loadActivity(), this.loadHeatmap()]);
       try {
         const res = await api("/api/muse/state");
         this.museState = res.state || "off";
@@ -1452,6 +1456,66 @@ function pageMuse() {
       } catch (e) {
         this.activity = [];
       }
+    },
+
+    async loadHeatmap() {
+      try {
+        const res = await api("/api/muse/heatmap?days=365");
+        this.heatmap = res.cells || [];
+      } catch (e) {
+        this.heatmap = [];
+      }
+    },
+
+    async loadDigest() {
+      this.digestBusy = true;
+      try {
+        const res = await api(`/api/muse/digest?date=${encodeURIComponent(this.selectedDate)}`);
+        this.digest = res.summary || "No summary available.";
+      } catch (e) {
+        this.digest = "Could not generate digest: " + (e.message || e);
+      } finally {
+        this.digestBusy = false;
+      }
+    },
+
+    renderHeatmap() {
+      if (!this.heatmap.length) return '<div style="color: var(--mute-2); font-size: var(--fs-xs);">No data yet.</div>';
+      // 7-row grid: 0=Sun, 1=Mon, ..., 6=Sat. We pad the front of the cell
+      // array with empty cells until the first cell lines up under its weekday.
+      const first = new Date(this.heatmap[0].date + "T00:00:00Z").getUTCDay();
+      const cells = Array(first).fill(null).concat(this.heatmap);
+      const cols = Math.ceil(cells.length / 7);
+      const cell = 11, gap = 2, w = cols * (cell + gap), h = 7 * (cell + gap);
+      let svg = `<svg width="${w}" height="${h + 14}" xmlns="http://www.w3.org/2000/svg" style="display:block;">`;
+      // Weekday labels.
+      const days = ["", "Mon", "", "Wed", "", "Fri", ""];
+      for (let r = 0; r < 7; r++) {
+        svg += `<text x="0" y="${r * (cell + gap) + cell - 1}" font-size="9" fill="var(--mute-2)">${days[r]}</text>`;
+      }
+      const max = Math.max(1, ...this.heatmap.map(c => c.count));
+      // Color buckets: 0=none, 1-2=low, 3-5=mid, 6-10=high, 11+=very-high
+      const colorFor = (n) => {
+        if (!n) return "var(--hairline)";
+        if (n < 3) return "rgba(124, 92, 255, 0.20)";
+        if (n < 6) return "rgba(124, 92, 255, 0.40)";
+        if (n < 11) return "rgba(124, 92, 255, 0.65)";
+        return "rgba(124, 92, 255, 0.95)";
+      };
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const col = Math.floor(i / 7);
+        const row = i % 7;
+        const x = 26 + col * (cell + gap);
+        const y = row * (cell + gap);
+        if (!c) {
+          svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="transparent" />`;
+          continue;
+        }
+        svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${colorFor(c.count)}" stroke="var(--hairline)" stroke-width="0.5"><title>${c.date}: ${c.count} entries</title></rect>`;
+      }
+      svg += `</svg>`;
+      return svg;
     },
 
     toggleSort() {
