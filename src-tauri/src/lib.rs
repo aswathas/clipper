@@ -22,6 +22,7 @@ pub mod audiocapture;
 pub mod capture;
 pub mod clock;
 pub mod config;
+pub mod links;
 pub mod db;
 pub mod drainer;
 pub mod events;
