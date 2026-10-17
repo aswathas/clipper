@@ -95,6 +95,9 @@ fn muse_state_path(cfg: &Config) -> PathBuf {
 fn read_foreground() -> Option<(String, String)> {
     // PowerShell snippet — uses Win32 P/Invoke to get the foreground window title
     // and its owning process name. Outputs two lines: title then process.
+    // `GetModuleBaseName` returns empty for some windows (e.g. when OpenProcess
+    // fails on a protected PID); fall back to `QueryFullProcessImageName` with
+    // PROCESS_QUERY_LIMITED_INFORMATION (0x1000) before giving up.
     let script = r#"
 Add-Type -TypeDefinition @"
 using System;
@@ -108,6 +111,8 @@ public class FG {
   [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
   [DllImport("psapi.dll", CharSet=CharSet.Unicode, SetLastError=true)]
   public static extern uint GetModuleBaseName(IntPtr hProcess, IntPtr hModule, StringBuilder lpBaseName, int nSize);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern uint QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
   [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr hObject);
 }
 "@
@@ -123,7 +128,16 @@ $ph = [FG]::OpenProcess(0x1000, $false, $pid)
 if ($ph -ne [IntPtr]::Zero) {
   $sb2 = New-Object System.Text.StringBuilder 256
   [void][FG]::GetModuleBaseName($ph, [IntPtr]::Zero, $sb2, $sb2.Capacity)
-  $proc = $sb2.ToString()
+  $proc = $sb2.ToString().Trim()
+  if ($proc.Length -eq 0) {
+    $sz = 1024
+    $sb3 = New-Object System.Text.StringBuilder $sz
+    [void][FG]::QueryFullProcessImageName($ph, 0, $sb3, [ref]$sz)
+    $path = $sb3.ToString()
+    if ($path.Length -gt 0) {
+      $proc = [System.IO.Path]::GetFileNameWithoutExtension($path)
+    }
+  }
   [void][FG]::CloseHandle($ph)
 }
 Write-Output $title
