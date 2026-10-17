@@ -555,6 +555,115 @@ fn fts_literal(raw: &str) -> String {
     format!("\"{}\"", raw.replace('"', "\"\""))
 }
 
+// ----------------------------------------------------------- Zettelkasten links
+
+/// Items related to `id` by shared tags (Zettelkasten principle: atomic notes
+/// cross-link by concept, not by chronology). Excludes the source id itself.
+/// Up to `limit` items, ranked by overlap count then recency.
+pub fn related_by_tags(
+    conn: &Connection,
+    id: &str,
+    limit: i64,
+) -> rusqlite::Result<Vec<Item>> {
+    let mut stmt = conn.prepare(
+        "WITH src AS (SELECT tags FROM items WHERE id = ?1)
+         SELECT i.id, i.url, i.type, i.source, i.title, i.summary,
+                i.vault_path, i.saved_at, i.status, i.tags,
+                (SELECT COUNT(*) FROM json_each(src.tags) je
+                  WHERE je.value IN (SELECT value FROM json_each(i.tags))) AS overlap
+         FROM items i, src
+         WHERE i.id != ?1
+           AND EXISTS (
+             SELECT 1 FROM json_each(src.tags) je2
+             WHERE je2.value IN (SELECT value FROM json_each(i.tags))
+           )
+         ORDER BY overlap DESC, i.saved_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![id, limit], |row| {
+        let tags_raw: Option<String> = row.get(9)?;
+        Ok(Item {
+            id: row.get(0)?,
+            url: row.get(1)?,
+            kind: row.get(2)?,
+            source: row.get(3)?,
+            title: row.get(4)?,
+            summary: row.get(5)?,
+            vault_path: row.get(6)?,
+            saved_at: row.get(7)?,
+            status: row.get(8)?,
+            tags: tags_raw
+                .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                .unwrap_or_default(),
+        })
+    })?;
+    rows.collect()
+}
+
+/// Backlinks: items whose markdown body mentions `[[<id>]]`. Walks every
+/// indexed note's `vault_path`, extracts wikilinks, and returns the ones
+/// pointing at `id`. Limited to `limit` results, newest first.
+pub fn backlinks(conn: &Connection, id: &str, limit: i64) -> rusqlite::Result<Vec<Item>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, url, type, source, title, summary, vault_path, saved_at, status, tags
+         FROM items WHERE id != ?1 AND vault_path IS NOT NULL
+         ORDER BY saved_at DESC",
+    )?;
+    let rows = stmt.query_map(params![id], |row| {
+        let tags_raw: Option<String> = row.get(9)?;
+        Ok(Item {
+            id: row.get(0)?,
+            url: row.get(1)?,
+            kind: row.get(2)?,
+            source: row.get(3)?,
+            title: row.get(4)?,
+            summary: row.get(5)?,
+            vault_path: row.get(6)?,
+            saved_at: row.get(7)?,
+            status: row.get(8)?,
+            tags: tags_raw
+                .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                .unwrap_or_default(),
+        })
+    })?;
+    let needle = format!("[[{}]]", id);
+    let mut out: Vec<Item> = Vec::new();
+    for item in rows {
+        let item = item?;
+        if let Some(path) = item.vault_path.as_deref() {
+            if let Ok(body) = std::fs::read_to_string(path) {
+                if body.contains(&needle) {
+                    out.push(item);
+                    if out.len() as i64 >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Extract `[[id]]` wikilinks from a markdown body. Used by the indexer to
+/// harvest user-authored links and by the related-items heuristic.
+pub fn extract_wikilinks(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = body;
+    while let Some(start) = rest.find("[[") {
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("]]") {
+            let inner = after[..end].trim();
+            if !inner.is_empty() && !inner.contains('[') && !inner.contains(']') {
+                out.push(inner.to_string());
+            }
+            rest = &after[end + 2..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
 fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     let tags_raw: Option<String> = row.get(9)?;
     Ok(Item {
