@@ -65,6 +65,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/items/{id}", get(get_item))
         .route("/api/items/{id}/status", post(set_status))
         .route("/api/items/{id}/tags", post(set_tags))
+        .route("/api/items/{id}/backlinks", get(get_backlinks))
+        .route("/api/zettelkasten/rebuild", post(rebuild_zettelkasten))
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
@@ -958,4 +960,33 @@ async fn get_related(
         })?
     };
     Ok(Json(json!({ "tags": tags, "related": related, "total": related.len() })))
+}
+
+// ----------------------------------------------------------------- Zettelkasten
+
+/// Backlinks for an item: other items that already link to this one via `[[id]]`.
+async fn get_backlinks(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let items = with_db(&state, |conn| db::backlinks(conn, &id, 50))?;
+    Ok(Json(json!({
+        "id": id,
+        "backlinks": items.into_iter().map(|it| json!({
+            "id": it.id,
+            "title": it.title,
+            "url": it.url,
+            "saved_at": it.saved_at,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+/// Rebuild `<vault>/Zettelkasten.md` from the current index. Returns the
+/// number of notes indexed.
+async fn rebuild_zettelkasten(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let vault = state.cfg.vault_path();
+    let count = with_db(&state, |conn| crate::links::rebuild_index(conn, &vault))?;
+    Ok(Json(json!({ "indexed": count, "path": vault.join("Zettelkasten.md").display().to_string() })))
 }
