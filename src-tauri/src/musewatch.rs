@@ -27,8 +27,7 @@ use crate::config::Config;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const POLL_INTERVAL_SECS: u64 = 5;
-const DEFAULT_DEBOUNCE_TICKS: u32 = 2; // 10s of stable title before summarize
+const POLL_INTERVAL_SECS: u64 = 1; // 1s tick — low cost (PowerShell is the only overhead)
 
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
@@ -46,6 +45,10 @@ pub fn stop() {
 fn run_loop(cfg: Config) {
     let activity_dir = cfg.vault_path().join("Activity");
     let _ = fs::create_dir_all(&activity_dir);
+    let screenshots_dir = cfg.vault_path().join("Activity").join("screenshots");
+    if cfg.muse.screenshots {
+        let _ = fs::create_dir_all(&screenshots_dir);
+    }
     // Ticks required to consider a title stable. If the user set a custom
     // debounce in config, honor it; otherwise fall back to 2 ticks (10s).
     let debounce_ticks = if cfg.muse.debounce_secs == 0 {
@@ -105,7 +108,12 @@ fn run_loop(cfg: Config) {
                     }
                     let summary = summarize(&title, &process);
                     if !summary.is_empty() && !summary.eq_ignore_ascii_case("skip") {
-                        append_entry(&activity_dir, &title, &process, &summary);
+                        let screenshot = if cfg.muse.screenshots {
+                            capture_screenshot(&screenshots_dir, &title, &process)
+                        } else {
+                            None
+                        };
+                        append_entry(&activity_dir, &title, &process, &summary, screenshot.as_deref());
                         last_recorded = Some((process.clone(), normalized));
                     }
                 }
@@ -250,15 +258,98 @@ fn summarize(title: &str, process: &str) -> String {
     out.lines().next().unwrap_or("").trim().to_string()
 }
 
-fn append_entry(activity_dir: &Path, title: &str, process: &str, summary: &str) {
+fn append_entry(
+    activity_dir: &Path,
+    title: &str,
+    process: &str,
+    summary: &str,
+    screenshot: Option<&str>,
+) {
     let date = current_date();
     let path = activity_dir.join(format!("{date}.md"));
     let ts = current_time_hhmm();
-    let line = format!("- `{ts}` **{process}** — {title} — {summary}\n");
+    let line = match screenshot {
+        Some(s) => format!("- `{ts}` **{process}** — {title} — {summary} 📷 {s}\n"),
+        None => format!("- `{ts}` **{process}** — {title} — {summary}\n"),
+    };
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
     }
     println!("Muse: {}", line.trim());
+}
+
+/// Capture the foreground window's bitmap into `<dir>/<HHMMSS>_<process>.png` via
+/// `PrintWindow` (the GDI path — works even on DirectX/fullscreen apps that
+/// `BitBlt` cannot reach). Returns the relative path on success so the markdown
+/// line can link to it.
+fn capture_screenshot(dir: &Path, _title: &str, process: &str) -> Option<String> {
+    let safe_proc: String = process
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let stamp = {
+        let now = time::OffsetDateTime::now_local()
+            .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        format!("{:02}{:02}{:02}", now.hour(), now.minute(), now.second())
+    };
+    let filename = format!("{stamp}_{safe_proc}.png");
+    let out_path = dir.join(&filename);
+    let out_str = out_path.to_string_lossy().to_string();
+    // PowerShell snippet: capture the foreground HWND with PrintWindow and save
+    // a PNG. Uses System.Drawing for the bitmap; that needs STA which is the
+    // default for powershell.exe -NoProfile.
+    let script = format!(
+        r#"
+Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @"
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Text;
+public class SW {{
+  [DllImport(""user32.dll"")] public static extern IntPtr GetForegroundWindow();
+  [DllImport(""user32.dll"")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport(""user32.dll"")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+  [DllImport(""user32.dll"", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport(""user32.dll"")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport(""kernel32.dll"")] public static extern IntPtr OpenProcess(uint a, bool i, uint p);
+  [DllImport(""psapi.dll"", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern uint GetModuleBaseName(IntPtr h, IntPtr m, StringBuilder s, int n);
+  [DllImport(""kernel32.dll"")] public static extern bool CloseHandle(IntPtr h);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT {{ public int L, T, R, B; }}
+}}
+"@
+$h = [SW]::GetForegroundWindow()
+if ($h -eq [IntPtr]::Zero) {{ exit 0 }}
+$rect = New-Object SW+RECT
+[void][SW]::GetWindowRect($h, [ref]$rect)
+$w = $rect.R - $rect.L
+$ht = $rect.B - $rect.T
+if ($w -le 0 -or $ht -le 0) {{ exit 0 }}
+$bmp = New-Object System.Drawing.Bitmap $w, $ht
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$hdc = $g.GetHdc()
+$ok = [SW]::PrintWindow($h, $hdc, 2)  # PW_RENDERFULLCONTENT
+$g.ReleaseHdc($hdc)
+$g.Dispose()
+if (-not $ok) {{ $bmp.Dispose(); exit 0 }}
+$bmp.Save('{out_str}', [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+Write-Output 'ok'
+"#
+    );
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
+    if out.status.success() {
+        Some(filename)
+    } else {
+        None
+    }
 }
 
 fn current_date() -> String {

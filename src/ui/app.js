@@ -1417,6 +1417,10 @@ function pageMuse() {
     sortNewestFirst: true,
     busy: false,
     statusText: "Off — Muse is not watching.",
+    settingsOpen: false,
+    cfgDraft: { smart_dedup: true, screenshots: false, debounce_secs: 10, skipCsv: "" },
+    cfgSaving: false,
+    cfgSaved: false,
 
     get dateOptions() {
       const opts = [];
@@ -1439,7 +1443,7 @@ function pageMuse() {
 
     async init() {
       this.selectedDate = this.dateOptions[0].value;
-      await Promise.all([this.loadActivity(), this.loadHeatmap()]);
+      await Promise.all([this.loadActivity(), this.loadHeatmap(), this.loadConfig()]);
       try {
         const res = await api("/api/muse/state");
         this.museState = res.state || "off";
@@ -1477,6 +1481,51 @@ function pageMuse() {
       } finally {
         this.digestBusy = false;
       }
+    },
+
+    async loadConfig() {
+      try {
+        const res = await api("/api/muse/config");
+        this.cfgDraft.smart_dedup = !!res.smart_dedup;
+        this.cfgDraft.screenshots = !!res.screenshots;
+        this.cfgDraft.debounce_secs = res.debounce_secs || 0;
+        this.cfgDraft.skipCsv = (res.skip_processes || []).join(", ");
+      } catch (e) {
+        toast("Could not load Muse config: " + (e.message || e), "danger");
+      }
+    },
+
+    async saveSettings() {
+      this.cfgSaving = true;
+      this.cfgSaved = false;
+      try {
+        const skip = this.cfgDraft.skipCsv
+          .split(",")
+          .map(s => s.trim().toLowerCase())
+          .filter(Boolean);
+        await api("/api/muse/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            smart_dedup: this.cfgDraft.smart_dedup,
+            screenshots: this.cfgDraft.screenshots,
+            debounce_secs: this.cfgDraft.debounce_secs,
+            skip_processes: skip,
+          })
+        });
+        this.cfgSaved = true;
+        toast("Muse settings saved. Restart Clipper for the watcher to pick them up.", "info");
+        setTimeout(() => { this.cfgSaved = false; }, 3000);
+      } catch (e) {
+        toast("Save failed: " + (e.message || e), "danger");
+      } finally {
+        this.cfgSaving = false;
+      }
+    },
+
+    toggleSettings() {
+      this.settingsOpen = !this.settingsOpen;
+      if (this.settingsOpen) this.loadConfig();
     },
 
     renderHeatmap() {
