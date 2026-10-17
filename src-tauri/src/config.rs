@@ -100,6 +100,15 @@ pub struct MuseCfg {
     /// reads the foreground WhatsApp window, copies the most recent
     /// incoming message via UI Automation, and appends it to today's note.
     pub capture_whatsapp: bool,
+    /// Foreground process names (case-insensitive, no `.exe`) that should
+    /// trigger audio capture. The audiocapture worker records 30-second
+    /// windows, transcribes with the local Whisper model, and appends the
+    /// transcript to `<vault>/Calls/<date>.md`.
+    pub calls_processes: Vec<String>,
+    /// Path to a `whisper-cli` binary. Built from whisper.cpp; not bundled.
+    pub transcription_cli: String,
+    /// Path to a ggml Whisper model (e.g. `ggml-base.en.bin`).
+    pub transcription_model: String,
 }
 
 impl Default for MuseCfg {
@@ -118,6 +127,16 @@ impl Default for MuseCfg {
             screenshots: false,
             record_calls: false,
             capture_whatsapp: false,
+            calls_processes: vec![
+                "zoom".into(),
+                "teams".into(),
+                "slack".into(),
+                "discord".into(),
+                "skype".into(),
+                "webexmta".into(),
+            ],
+            transcription_cli: String::new(),
+            transcription_model: String::new(),
         }
     }
 }
