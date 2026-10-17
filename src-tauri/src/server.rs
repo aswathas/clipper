@@ -721,6 +721,8 @@ struct MuseConfigBody {
     smart_dedup: Option<bool>,
     debounce_secs: Option<u32>,
     screenshots: Option<bool>,
+    record_calls: Option<bool>,
+    capture_whatsapp: Option<bool>,
 }
 
 /// Update one or more Muse settings. Persists to `config.toml`. The in-memory
@@ -742,6 +744,12 @@ async fn set_muse_config(
     }
     if let Some(v) = body.screenshots {
         cfg.muse.screenshots = v;
+    }
+    if let Some(v) = body.record_calls {
+        cfg.muse.record_calls = v;
+    }
+    if let Some(v) = body.capture_whatsapp {
+        cfg.muse.capture_whatsapp = v;
     }
     let path = crate::config::config_path();
     let toml_str = toml::to_string_pretty(&cfg).map_err(ApiError::internal)?;
@@ -817,7 +825,9 @@ fn parse_activity_line(line: &str, today: &str) -> Option<Value> {
     let rest = rest.strip_prefix("—").unwrap_or(rest).trim_start();
     let mut parts = rest.splitn(2, " — ");
     let title = parts.next().unwrap_or("").trim().to_string();
-    let summary = parts.next().unwrap_or("").trim().to_string();
+    let raw_summary = parts.next().unwrap_or("").trim().to_string();
+    // Extract [category] and #tag1 #tag2 ... from the summary tail.
+    let (summary, category, tags) = extract_category_tags(&raw_summary);
     // The watcher's HH:MM is the user's local clock; emit a naive ISO stamp
     // (no Z) so `new Date(ts)` parses it as browser-local time, not UTC.
     let ts = format!("{today}T{hhmm}:00");
@@ -826,7 +836,52 @@ fn parse_activity_line(line: &str, today: &str) -> Option<Value> {
         "process": process,
         "window_title": title,
         "summary": summary,
+        "category": category,
+        "tags": tags,
     }))
+}
+
+/// Pull `[category]` and `#tag1 #tag2` out of the summary tail. Returns the
+/// cleaned summary plus an optional category and the tag list.
+fn extract_category_tags(raw: &str) -> (String, Option<String>, Vec<String>) {
+    let mut s = raw.to_string();
+    // The screenshot marker (📷 filename) sits at the very end — strip it.
+    if let Some(idx) = s.rfind('\u{1F4F7}') {
+        s.truncate(idx);
+    }
+    s = s.trim_end().to_string();
+    // [category] is one bracketed token at the tail.
+    let mut category: Option<String> = None;
+    if let Some(open) = s.rfind('[') {
+        if let Some(close) = s.rfind(']') {
+            if close > open && close == s.len() - 1 {
+                category = Some(s[open + 1..close].trim().to_string());
+                s.truncate(open);
+                s = s.trim_end().to_string();
+            }
+        }
+    }
+    // Tags: any #word tokens. Keep word/dash/underscore characters; drop
+    // anything else (e.g. trailing punctuation).
+    let mut tags: Vec<String> = Vec::new();
+    let mut cleaned = String::new();
+    for tok in s.split_whitespace() {
+        if let Some(tag) = tok.strip_prefix('#') {
+            let cleaned_tag: String = tag
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !cleaned_tag.is_empty() {
+                tags.push(cleaned_tag);
+                continue;
+            }
+        }
+        if !cleaned.is_empty() {
+            cleaned.push(' ');
+        }
+        cleaned.push_str(tok);
+    }
+    (cleaned.trim().to_string(), category, tags)
 }
 
 #[derive(Debug, Deserialize)]

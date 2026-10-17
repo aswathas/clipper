@@ -134,9 +134,18 @@ fn run_loop(cfg: Config, hook_rx: Option<Receiver<isize>>) {
                     } else {
                         None
                     };
-                    let summary = summarize_with_image(&title, &process, screenshot.as_deref());
-                    if !summary.is_empty() && !summary.eq_ignore_ascii_case("skip") {
-                        append_entry(&activity_dir, &title, &process, &summary, screenshot.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()));
+                    let raw = summarize_with_image(&title, &process, screenshot.as_deref());
+                    let parsed = parse_summary(&raw);
+                    if !parsed.summary.is_empty() && !parsed.summary.eq_ignore_ascii_case("skip") {
+                        append_entry(
+                            &activity_dir,
+                            &title,
+                            &process,
+                            &parsed.summary,
+                            parsed.category.as_deref(),
+                            &parsed.tags,
+                            screenshot.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
+                        );
                         last_recorded = Some((process.clone(), normalized));
                     }
                 }
@@ -258,10 +267,15 @@ fn summarize(title: &str, process: &str) -> String {
 /// Ask Claude to summarize a foreground change. If a screenshot path is given
 /// and `ANTHROPIC_API_KEY` is set, we hit the Anthropic Messages API directly
 /// with a multimodal content block (image + text). Otherwise we fall back to
-/// the `claude -p` CLI with no image.
+/// the `claude -p` CLI with no image. The prompt asks for `summary` plus
+/// `category` (one word) and `tags` (comma-separated) on a second line so
+/// the dashboard can filter by topic.
 fn summarize_with_image(title: &str, process: &str, screenshot: Option<&Path>) -> String {
     let prompt = format!(
-        "You are a silent note-taker. The user switched to a window titled \"{title}\" (process: {process_name}). Reply with ONE concise line (max 120 chars) describing what they are likely working on. If uninformative (screensaver, lockscreen, blank), reply SKIP.",
+        "You are a silent note-taker. The user switched to a window titled \"{title}\" (process: {process_name}). Reply in EXACTLY this two-line format, nothing else:\n\
+         line 1: a concise one-line description (max 120 chars). If uninformative (screensaver, lockscreen, blank), reply SKIP on line 1 and leave line 2 empty.\n\
+         line 2: CATEGORY=<one-word bucket like code|writing|email|design|research|browsing|meeting|admin|other> TAGS=<comma-separated,lowercase,2-5 items>\n\n\
+         Example line 2: CATEGORY=code TAGS=rust,tauri,api",
         title = title,
         process_name = process,
     );
@@ -348,19 +362,53 @@ fn append_entry(
     title: &str,
     process: &str,
     summary: &str,
+    category: Option<&str>,
+    tags: &[String],
     screenshot: Option<&str>,
 ) {
     let date = current_date();
     let path = activity_dir.join(format!("{date}.md"));
     let ts = current_time_hhmm();
+    let cat = category.unwrap_or("other");
+    let tag_str = if tags.is_empty() { String::new() } else { format!(" #{}", tags.join(" #")) };
     let line = match screenshot {
-        Some(s) => format!("- `{ts}` **{process}** — {title} — {summary} 📷 {s}\n"),
-        None => format!("- `{ts}` **{process}** — {title} — {summary}\n"),
+        Some(s) => format!("- `{ts}` **{process}** — {title} — {summary} [{cat}]{tag_str} 📷 {s}\n"),
+        None => format!("- `{ts}` **{process}** — {title} — {summary} [{cat}]{tag_str}\n"),
     };
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
     }
     println!("Muse: {}", line.trim());
+}
+
+/// Parses the two-line response from `summarize_with_image`:
+///   line 1: <summary text, possibly "SKIP">
+///   line 2: CATEGORY=<word> TAGS=<csv>
+fn parse_summary(raw: &str) -> ParsedSummary {
+    let mut lines = raw.lines();
+    let summary = lines.next().unwrap_or("").trim().to_string();
+    let mut category: Option<String> = None;
+    let mut tags: Vec<String> = Vec::new();
+    if let Some(meta) = lines.next() {
+        for tok in meta.split_whitespace() {
+            if let Some(v) = tok.strip_prefix("CATEGORY=") {
+                category = Some(v.trim().to_string());
+            } else if let Some(v) = tok.strip_prefix("TAGS=") {
+                tags = v
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+        }
+    }
+    ParsedSummary { summary, category, tags }
+}
+
+struct ParsedSummary {
+    summary: String,
+    category: Option<String>,
+    tags: Vec<String>,
 }
 
 /// Capture the foreground window's bitmap into `<dir>/<HHMMSS>_<process>.png` via

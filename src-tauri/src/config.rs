@@ -92,6 +92,14 @@ pub struct MuseCfg {
     /// `claude -p` prompt for richer summaries. Disabled by default; needs
     /// `claude` to accept image attachments via stdin.
     pub screenshots: bool,
+    /// Auto-record system + mic audio when a Zoom/Teams call is detected.
+    /// The recording is sent to a local Whisper-ggml model (set up by the
+    /// ML/AI engineer); the transcript appends to today's activity.
+    pub record_calls: bool,
+    /// Capture WhatsApp text messages via UI automation. The watcher
+    /// reads the foreground WhatsApp window, copies the most recent
+    /// incoming message via UI Automation, and appends it to today's note.
+    pub capture_whatsapp: bool,
 }
 
 impl Default for MuseCfg {
@@ -108,6 +116,8 @@ impl Default for MuseCfg {
             smart_dedup: true,
             debounce_secs: 10,
             screenshots: false,
+            record_calls: false,
+            capture_whatsapp: false,
         }
     }
 }
