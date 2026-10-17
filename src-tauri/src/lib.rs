@@ -24,6 +24,7 @@ pub mod config;
 pub mod db;
 pub mod drainer;
 pub mod events;
+pub mod musehook;
 pub mod musewatch;
 pub mod frontmatter;
 pub mod memory;
@@ -372,8 +373,12 @@ pub fn run() {
                 indexer.watch().await;
             });
 
-            // ---- Muse watcher: poll foreground window, summarize with claude-cli ----
-            musewatch::spawn(cfg.clone());
+            // ---- Muse watcher: Win32 event hook + summarize with claude-cli ----
+            // `musehook::spawn()` registers SetWinEventHook(EVENT_SYSTEM_FOREGROUND)
+            // and gives us an mpsc Receiver of HWNDs; the watcher also keeps a
+            // 1s PowerShell poll as a safety net for windows the hook misses.
+            let hook_rx = musehook::spawn();
+            musewatch::spawn_with_hook(cfg.clone(), hook_rx);
 
             // ---- self-improvement: recompute at startup, then daily ----
             tauri::async_runtime::spawn(routes_self::nightly(Arc::clone(&index_db)));

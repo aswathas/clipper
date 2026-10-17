@@ -12,6 +12,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::Receiver,
         Arc,
     },
     thread,
@@ -34,7 +35,18 @@ static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 pub fn spawn(cfg: Config) {
     thread::Builder::new()
         .name("muse-watcher".into())
-        .spawn(move || run_loop(cfg))
+        .spawn(move || run_loop(cfg, None))
+        .expect("failed to spawn muse watcher thread");
+}
+
+/// Spawn the watcher with a Win32 event-hook receiver. The watcher reacts to
+/// each foreground change in <50ms instead of waiting up to 1s for the poll.
+/// The 1s poll still runs as a safety net for windows the hook misses (e.g.,
+/// minimized-to-tray with no focus event).
+pub fn spawn_with_hook(cfg: Config, hook_rx: Receiver<isize>) {
+    thread::Builder::new()
+        .name("muse-watcher".into())
+        .spawn(move || run_loop(cfg, Some(hook_rx)))
         .expect("failed to spawn muse watcher thread");
 }
 
@@ -42,7 +54,7 @@ pub fn stop() {
     STOP_FLAG.store(true, Ordering::SeqCst);
 }
 
-fn run_loop(cfg: Config) {
+fn run_loop(cfg: Config, hook_rx: Option<Receiver<isize>>) {
     let activity_dir = cfg.vault_path().join("Activity");
     let _ = fs::create_dir_all(&activity_dir);
     let screenshots_dir = cfg.vault_path().join("Activity").join("screenshots");
@@ -66,6 +78,16 @@ fn run_loop(cfg: Config) {
     let mut stable_ticks: u32 = 0;
     let mut last_recorded: Option<(String, String)> = None; // (process, normalized_title)
     while !STOP_FLAG.load(Ordering::SeqCst) {
+        // Wait for either a Win32 event (sub-50ms when the foreground changes)
+        // or the poll timer (1s) — whichever comes first. If the hook is
+        // missing, the timer always wins.
+        let _ = match hook_rx.as_ref() {
+            Some(rx) => rx.recv_timeout(Duration::from_secs(POLL_INTERVAL_SECS)),
+            None => {
+                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
+                Ok(0)
+            }
+        };
         if read_state(&cfg) == "watching" {
             if let Some((title, process)) = read_foreground() {
                 // Skip empty/blank process (would render as **** in markdown).
@@ -106,14 +128,15 @@ fn run_loop(cfg: Config) {
                             }
                         }
                     }
-                    let summary = summarize(&title, &process);
+                    let screenshot = if cfg.muse.screenshots {
+                        capture_screenshot(&screenshots_dir, &title, &process)
+                            .map(|name| screenshots_dir.join(name))
+                    } else {
+                        None
+                    };
+                    let summary = summarize_with_image(&title, &process, screenshot.as_deref());
                     if !summary.is_empty() && !summary.eq_ignore_ascii_case("skip") {
-                        let screenshot = if cfg.muse.screenshots {
-                            capture_screenshot(&screenshots_dir, &title, &process)
-                        } else {
-                            None
-                        };
-                        append_entry(&activity_dir, &title, &process, &summary, screenshot.as_deref());
+                        append_entry(&activity_dir, &title, &process, &summary, screenshot.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()));
                         last_recorded = Some((process.clone(), normalized));
                     }
                 }
@@ -125,7 +148,6 @@ fn run_loop(cfg: Config) {
             last_signature = None;
             stable_ticks = 0;
         }
-        thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
     }
 }
 
@@ -230,11 +252,25 @@ Write-Output $proc
 }
 
 fn summarize(title: &str, process: &str) -> String {
+    summarize_with_image(title, process, None)
+}
+
+/// Ask Claude to summarize a foreground change. If a screenshot path is given
+/// and `ANTHROPIC_API_KEY` is set, we hit the Anthropic Messages API directly
+/// with a multimodal content block (image + text). Otherwise we fall back to
+/// the `claude -p` CLI with no image.
+fn summarize_with_image(title: &str, process: &str, screenshot: Option<&Path>) -> String {
     let prompt = format!(
         "You are a silent note-taker. The user switched to a window titled \"{title}\" (process: {process_name}). Reply with ONE concise line (max 120 chars) describing what they are likely working on. If uninformative (screensaver, lockscreen, blank), reply SKIP.",
         title = title,
         process_name = process,
     );
+    if let (Some(path), Some(key)) = (screenshot, std::env::var("ANTHROPIC_API_KEY").ok()) {
+        if let Ok(text) = call_anthropic_with_image(&key, &prompt, path) {
+            return text;
+        }
+        // fall through to CLI on API error
+    }
     let mut child = {
         let mut c = Command::new("claude");
         c.arg("-p")
@@ -256,6 +292,55 @@ fn summarize(title: &str, process: &str) -> String {
     }
     let _ = child.wait();
     out.lines().next().unwrap_or("").trim().to_string()
+}
+
+/// POST a multimodal message to the Anthropic Messages API. Uses
+/// `claude-sonnet-4-5` by default; override with `MUSE_VISION_MODEL` env.
+fn call_anthropic_with_image(api_key: &str, prompt: &str, png_path: &Path) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let bytes = std::fs::read(png_path).map_err(|e| e.to_string())?;
+    let b64 = STANDARD.encode(&bytes);
+    let model = std::env::var("MUSE_VISION_MODEL").unwrap_or_else(|_| "claude-sonnet-4-5".to_string());
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 200,
+        "messages": [{
+            "role": "user",
+            "content": [
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": b64 } },
+                { "type": "text", "text": prompt }
+            ]
+        }]
+    });
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        let s = resp.status();
+        let txt = resp.text().unwrap_or_default();
+        return Err(format!("anthropic http {s}: {txt}"));
+    }
+    let v: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+    // Walk the content[] array for the first text block.
+    if let Some(blocks) = v.get("content").and_then(|c| c.as_array()) {
+        for b in blocks {
+            if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = b.get("text").and_then(|t| t.as_str()) {
+                    return Ok(text.lines().next().unwrap_or("").trim().to_string());
+                }
+            }
+        }
+    }
+    Err("anthropic: no text block in response".to_string())
 }
 
 fn append_entry(
