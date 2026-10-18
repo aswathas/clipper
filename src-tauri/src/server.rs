@@ -71,6 +71,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/zettelkasten/rebuild", post(rebuild_zettelkasten))
         .route("/api/whatsapp/import", post(whatsapp_import_handler))
         .route("/api/daily-stream", get(get_daily_stream))
+        .route("/api/tags/{tag}/items", get(get_tag_items))
         .route("/api/clips", post(create_clip))
         .route("/api/import", post(import_batch))
         .route("/api/muse/state", get(get_muse_state).post(set_muse_state))
@@ -993,6 +994,33 @@ async fn rebuild_zettelkasten(
     let vault = state.cfg.vault_path();
     let count = with_db(&state, |conn| crate::links::rebuild_index(conn, &vault))?;
     Ok(Json(json!({ "indexed": count, "path": vault.join("Zettelkasten.md").display().to_string() })))
+}
+
+/// All items with a given tag — the tag-as-backlinks view.
+async fn get_tag_items(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let items = with_db(&state, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, url, title, summary, saved_at FROM items
+             WHERE EXISTS (SELECT 1 FROM json_each(items.tags) WHERE json_each.value = ?1)
+             ORDER BY saved_at DESC LIMIT 200",
+        )?;
+        let rows = stmt
+            .query_map(params![tag], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "url": row.get::<_, Option<String>>(1)?,
+                    "title": row.get::<_, Option<String>>(2)?,
+                    "summary": row.get::<_, Option<String>>(3)?,
+                    "saved_at": row.get::<_, i64>(4)?,
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })?;
+    Ok(Json(json!({ "tag": tag, "count": items.len(), "items": items })))
 }
 
 /// Bulk-import a WhatsApp "Export chat" text file. Body: `{ "path": "..." }`.

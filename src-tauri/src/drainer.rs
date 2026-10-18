@@ -262,12 +262,28 @@ impl Drainer {
 
         for (entry, source) in entries.iter().zip(sources.iter()) {
             // Read before moving: an unreadable note is a bad batch.
-            fs::read(source)?;
-            let dest = unique_destination(&vault_inbox, &stamp, &entry.source, &entry.id);
-            if fs::rename(source, &dest).is_err() {
-                fs::copy(source, &dest)?;
-                let _ = fs::remove_file(source);
+            let body = fs::read_to_string(source)?;
+            let (clean, fired) = crate::redact::redact(&body, &crate::redact::RedactCfg::default());
+            if !fired.is_empty() {
+                println!("drainer: redacted {} pattern(s) from {}", fired.join(","), entry.id);
             }
+            let polished = clean_title_polish_file(&clean);
+            let cleaned = if polished == clean {
+                let url = entry.target();
+                if !url.is_empty() {
+                    enrich_title_from_url(&polished, &url)
+                } else {
+                    polished
+                }
+            } else {
+                polished
+            };
+            let dest = unique_destination(&vault_inbox, &stamp, &entry.source, &entry.id);
+            if let Some(parent) = dest.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            fs::write(&dest, &cleaned)?;
+            let _ = fs::remove_file(source);
             queue::append_json_line(
                 &self.cfg.archive_jsonl(),
                 &serde_json::json!({
@@ -486,4 +502,122 @@ fn unique_destination(dir: &Path, stamp: &str, source: &str, id: &str) -> PathBu
 fn cleanup(processing: &Path, prompt: &Path) {
     let _ = fs::remove_file(processing);
     let _ = fs::remove_file(prompt);
+}
+
+/// If the frontmatter title is still garbled after polish, try the oEmbed
+/// fetchers to recover the real title for known platforms.
+fn enrich_title_from_url(body: &str, url: &str) -> String {
+    let (front_opt, rest) = crate::frontmatter::split(body);
+    let Some(front) = front_opt else { return body.to_string() };
+    let current = parse_frontmatter_title(front).unwrap_or_default();
+    if !crate::clean_title::is_garbled(&current) {
+        return body.to_string();
+    }
+    let Some(fetched) = crate::title_fetch::fetch_title_blocking(url) else {
+        return body.to_string();
+    };
+    if crate::clean_title::is_garbled(&fetched.title) {
+        return body.to_string();
+    }
+    let mut new_lines: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for line in front.lines() {
+        if !replaced && line.starts_with("title:") {
+            new_lines.push(format!("title: \"{}\"", fetched.title.replace('"', "“")));
+            replaced = true;
+        } else if !replaced
+            && (line.starts_with("source:") || line.starts_with("host:"))
+        {
+            new_lines.push(line.to_string());
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+    if !replaced {
+        return body.to_string();
+    }
+    let new_front = new_lines.join("\n");
+    let sep_open = body.find("---\n").unwrap_or(0);
+    let close_idx = body[sep_open + 4..]
+        .find("\n---")
+        .map(|i| sep_open + 4 + i + 4)
+        .unwrap_or(sep_open + 4);
+    let before = &body[..sep_open];
+    let after = &body[close_idx..];
+    println!("drainer: enriched title for {} from {}", url, fetched.source);
+    format!("{before}---\n{new_front}\n---{after}")
+}
+
+fn parse_frontmatter_title(front: &str) -> Option<String> {
+    let mut in_title = false;
+    let mut buf = String::new();
+    for line in front.lines() {
+        if let Some(rest) = line.strip_prefix("title:") {
+            in_title = true;
+            buf = rest.trim().trim_matches('"').to_string();
+        } else if in_title && (line.starts_with(' ') || line.starts_with('\t')) {
+            buf.push(' ');
+            buf.push_str(line.trim());
+        } else {
+            in_title = false;
+        }
+    }
+    if buf.is_empty() { None } else { Some(buf) }
+}
+
+/// Read the file, replace a garbled frontmatter `title:` with a body-derived
+/// one, and write it back. No-op when the file has no frontmatter or the
+/// existing title is already clean.
+fn clean_title_polish_file(body: &str) -> String {
+    let (front_opt, rest) = crate::frontmatter::split(body);
+    let Some(front) = front_opt else {
+        return body.to_string();
+    };
+    let mut title = String::new();
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_title = false;
+    for line in front.lines() {
+        if let Some(rest) = line.strip_prefix("title:") {
+            in_title = true;
+            title = rest.trim().trim_matches('"').to_string();
+            lines.push(line.to_string());
+        } else if in_title && (line.starts_with(' ') || line.starts_with('\t')) {
+            // Continuation line of a multi-line title scalar.
+            title.push(' ');
+            title.push_str(line.trim());
+            lines.push(line.to_string());
+        } else {
+            in_title = false;
+            lines.push(line.to_string());
+        }
+    }
+    if !crate::clean_title::is_garbled(&title) {
+        return body.to_string();
+    }
+    let derived = match crate::clean_title::from_body(rest) {
+        Some(t) => t,
+        None => return body.to_string(),
+    };
+    let mut new_lines: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for line in lines {
+        if !replaced && line.starts_with("title:") {
+            new_lines.push(format!("title: \"{}\"", derived.replace('"', "“")));
+            replaced = true;
+        } else {
+            new_lines.push(line);
+        }
+    }
+    if !replaced {
+        return body.to_string();
+    }
+    let new_front = new_lines.join("\n");
+    let sep_open = body.find("---\n").unwrap_or(0);
+    let close_idx = body[sep_open + 4..]
+        .find("\n---")
+        .map(|i| sep_open + 4 + i + 4)
+        .unwrap_or(sep_open + 4);
+    let before = &body[..sep_open];
+    let after = &body[close_idx..];
+    format!("{before}---\n{new_front}\n---{after}")
 }
